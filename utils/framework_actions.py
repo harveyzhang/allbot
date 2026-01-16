@@ -123,7 +123,8 @@ async def update_framework() -> Dict[str, str]:
     """更新框架代码（从 GitHub ZIP 下载）并触发重启。
 
     说明：
-    - 为避免覆盖用户配置/自定义插件，默认不更新 `main_config.toml`、`plugins/`、`adapter/*/config.toml`。
+    - 为避免覆盖用户配置，默认不更新 `main_config.toml`。
+    - `plugins/` 和 `adapter/` 目录会增量更新（包括配置文件）。
     - 更新完成会在项目根目录生成 `backup_YYYYmmddHHMMSS/` 备份目录。
     """
     async with _update_lock:
@@ -143,6 +144,8 @@ async def update_framework() -> Dict[str, str]:
             "utils",
             "dow/channel",
             "dow/lib",
+            "adapter",
+            "plugins",
             "version.json",
             "bot_core.py",
             "main_config.toml.example",

@@ -1408,11 +1408,11 @@
                 }
             }
 
-            // 每小时检查一次更新
-            checkForUpdates().catch(error => console.error('自动检查更新失败 (每小时):', error));
+            // 每6小时检查一次框架版本更新
+            checkForUpdates().catch(error => console.error('自动检查更新失败 (每6小时):', error));
             setInterval(() => {
-                checkForUpdates().catch(error => console.error('自动检查更新失败 (每小时 interval):', error));
-            }, 3600000); // 3600000毫秒 = 1小时
+                checkForUpdates().catch(error => console.error('自动检查更新失败 (每6小时 interval):', error));
+            }, 21600000); // 21600000毫秒 = 6小时
 
             // 添加更新按钮的事件监听器
             document.getElementById('modal-update-now-btn').addEventListener('click', updateNow);
