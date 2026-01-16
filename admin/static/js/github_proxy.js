@@ -174,10 +174,13 @@
     }
 
     async function checkSample(limit = 6) {
-        const sample = nodes.slice(0, limit);
+        // 过滤出未检测或检测失败的节点
+        const uncheckedNodes = nodes.filter((n) => !n.check || !n.check.ok);
+        const sample = uncheckedNodes.slice(0, limit);
         const urls = sample.map((item) => item.url);
         
         if (urls.length === 0) {
+            showToast("info", "所有节点都已检测通过");
             return;
         }
         
