@@ -79,7 +79,9 @@ type = "wechat"  # 可选值：wechat, default
       </ul>
     </td>
     <td width="25%" align="center">
-      <img src="admin/static/tg.jpg" alt="AllBot 交流群" width="220">
+      <a href="https://t.me/+--ToAPQBj-Q2YjM1" target="_blank">
+        <img src="admin/static/tg.jpg" alt="AllBot 交流群" width="220">
+      </a>
       <p><strong>AllBot 交流群</strong></p>
     </td>
     <td width="25%" align="center">

@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import tomllib
@@ -142,30 +143,167 @@ def _fetch_nodes_from_upstream() -> List[Dict[str, Any]]:
     return nodes
 
 
-def _probe_proxy(proxy_url: str) -> Dict[str, Any]:
+def _probe_proxy(proxy_url: str, max_retries: int = 2) -> Dict[str, Any]:
+    """
+    检测单个代理节点的可用性
+    
+    Args:
+        proxy_url: 代理URL
+        max_retries: 最大重试次数，默认2次
+    
+    Returns:
+        包含检测结果的字典
+    """
     proxy_url = _normalize_proxy_url(proxy_url)
     test_url = f"{proxy_url}{_TEST_GITHUB_URL}"
     headers = {"Range": "bytes=0-2048"}
+    
+    last_error = None
+    for attempt in range(max_retries + 1):
+        start = time.perf_counter()
+        try:
+            # 使用元组超时：(连接超时, 读取超时)
+            resp = requests.get(
+                test_url,
+                headers=headers,
+                timeout=(3, 5),
+                allow_redirects=True
+            )
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            
+            # 验证状态码：200 或 206（Range 请求的部分内容）
+            status_ok = resp.status_code in (200, 206)
+            
+            # 验证 Content-Type
+            content_type = resp.headers.get("Content-Type", "").lower()
+            content_type_ok = "image/" in content_type or "octet-stream" in content_type
+            
+            # 验证内容长度
+            content_length = len(resp.content)
+            content_length_ok = content_length > 0
+            
+            # 综合判断
+            ok = status_ok and content_type_ok and content_length_ok
+            
+            return {
+                "ok": ok,
+                "status_code": resp.status_code,
+                "elapsed_ms": elapsed_ms,
+                "final_url": resp.url,
+                "content_length": content_length,
+            }
+            
+        except requests.Timeout as e:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            last_error = {
+                "ok": False,
+                "status_code": None,
+                "elapsed_ms": elapsed_ms,
+                "error": "连接超时",
+            }
+            # 超时不重试，直接返回
+            return last_error
+            
+        except requests.ConnectionError as e:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            last_error = {
+                "ok": False,
+                "status_code": None,
+                "elapsed_ms": elapsed_ms,
+                "error": "连接失败",
+            }
+            # 连接错误重试
+            if attempt < max_retries:
+                time.sleep(0.1)  # 短暂延迟后重试
+                continue
+                
+        except requests.HTTPError as e:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            last_error = {
+                "ok": False,
+                "status_code": getattr(e.response, "status_code", None),
+                "elapsed_ms": elapsed_ms,
+                "error": f"HTTP错误: {str(e)}",
+            }
+            return last_error
+            
+        except Exception as e:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            last_error = {
+                "ok": False,
+                "status_code": None,
+                "elapsed_ms": elapsed_ms,
+                "error": str(e),
+            }
+            # 其他错误重试
+            if attempt < max_retries:
+                time.sleep(0.1)
+                continue
+    
+    # 所有重试都失败，返回最后一次错误
+    return last_error if last_error else {
+        "ok": False,
+        "status_code": None,
+        "elapsed_ms": 0,
+        "error": "未知错误",
+    }
 
-    start = time.perf_counter()
-    try:
-        resp = requests.get(test_url, headers=headers, timeout=8, allow_redirects=True)
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        ok = resp.status_code == 200
-        return {
-            "ok": ok,
-            "status_code": resp.status_code,
-            "elapsed_ms": elapsed_ms,
-            "final_url": resp.url,
+
+def _probe_proxies_batch(proxy_urls: List[str], max_workers: int = 5) -> List[Dict[str, Any]]:
+    """
+    并发批量检测多个代理节点
+    
+    Args:
+        proxy_urls: 代理URL列表
+        max_workers: 最大并发工作线程数，默认5
+    
+    Returns:
+        结果列表，每个元素包含 url 和检测结果
+    """
+    results = []
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有检测任务
+        future_to_url = {
+            executor.submit(_probe_proxy, url): url
+            for url in proxy_urls
         }
-    except Exception as e:
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        return {
-            "ok": False,
-            "status_code": None,
-            "elapsed_ms": elapsed_ms,
-            "error": str(e),
-        }
+        
+        # 按提交顺序收集结果
+        for url in proxy_urls:
+            # 找到对应的 future
+            future = None
+            for f, u in future_to_url.items():
+                if u == url:
+                    future = f
+                    break
+            
+            if future:
+                try:
+                    result = future.result()
+                    results.append({
+                        "url": _normalize_proxy_url(url),
+                        **result
+                    })
+                except Exception as e:
+                    logger.error(f"检测代理 {url} 时发生异常: {e}")
+                    results.append({
+                        "url": _normalize_proxy_url(url),
+                        "ok": False,
+                        "status_code": None,
+                        "elapsed_ms": 0,
+                        "error": f"检测异常: {str(e)}"
+                    })
+            else:
+                results.append({
+                    "url": _normalize_proxy_url(url),
+                    "ok": False,
+                    "status_code": None,
+                    "elapsed_ms": 0,
+                    "error": "未找到检测任务"
+                })
+    
+    return results
 
 
 @router.get("/current")
@@ -201,6 +339,68 @@ async def check_node(request: Request):
         return JSONResponse({"success": True, "data": {"url": _normalize_proxy_url(url), **result}})
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@router.post("/check-batch")
+async def check_nodes_batch(request: Request):
+    """
+    批量检测多个代理节点
+    
+    请求体格式:
+    {
+        "urls": ["url1", "url2", ...]
+    }
+    
+    响应格式:
+    {
+        "success": true,
+        "data": {
+            "results": [
+                {"url": "url1", "ok": true, ...},
+                {"url": "url2", "ok": false, ...}
+            ]
+        }
+    }
+    """
+    await _require_auth(request)
+    
+    try:
+        payload = await request.json()
+        urls = payload.get("urls") if isinstance(payload, dict) else []
+        
+        # 验证输入
+        if not isinstance(urls, list):
+            return JSONResponse(
+                {"success": False, "error": "urls 必须是数组"},
+                status_code=400
+            )
+        
+        if len(urls) == 0:
+            return JSONResponse(
+                {"success": True, "data": {"results": []}},
+                status_code=200
+            )
+        
+        if len(urls) > 10:
+            return JSONResponse(
+                {"success": False, "error": "单次最多检测10个节点"},
+                status_code=400
+            )
+        
+        # 执行批量检测
+        results = await run_in_threadpool(_probe_proxies_batch, urls)
+        
+        return JSONResponse({
+            "success": True,
+            "data": {"results": results}
+        })
+        
+    except Exception as e:
+        logger.error(f"批量检测代理节点失败: {e}")
+        return JSONResponse(
+            {"success": False, "error": f"批量检测失败: {str(e)}"},
+            status_code=500
+        )
 
 
 @router.post("/apply")

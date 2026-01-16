@@ -175,17 +175,67 @@
 
     async function checkSample(limit = 6) {
         const sample = nodes.slice(0, limit);
+        const urls = sample.map((item) => item.url);
+        
+        if (urls.length === 0) {
+            return;
+        }
+        
+        // 批量标记为检测中
         for (const item of sample) {
-            const result = await checkOne(item.url);
-            if (!result || !result.ok) {
-                const targetUrl = normalizeUrl(item.url);
-                nodes = nodes.filter((n) => normalizeUrl(n.url) !== targetUrl);
+            const idx = nodes.findIndex((n) => normalizeUrl(n.url) === normalizeUrl(item.url));
+            if (idx >= 0) {
+                checkingUrls.add(normalizeUrl(item.url));
+                nodes[idx].check = { loading: true };
             }
         }
-        if (selectedUrl && !nodes.some((n) => normalizeUrl(n.url) === selectedUrl)) {
-            selectedUrl = "";
-        }
         render();
+        
+        try {
+            // 调用批量检测接口
+            const data = await fetchJson("/api/github-proxy/check-batch", {
+                method: "POST",
+                body: JSON.stringify({ urls }),
+            });
+            
+            const results = data.data.results || [];
+            
+            // 更新每个节点的检测结果
+            for (const result of results) {
+                const resultUrl = normalizeUrl(result.url);
+                const idx = nodes.findIndex((n) => normalizeUrl(n.url) === resultUrl);
+                
+                if (idx >= 0) {
+                    nodes[idx].check = {
+                        ok: Boolean(result.ok),
+                        elapsed_ms: result.elapsed_ms,
+                        status_code: result.status_code,
+                        error: result.error,
+                    };
+                    
+                    // 移除检测失败的节点
+                    if (!result.ok) {
+                        nodes = nodes.filter((n) => normalizeUrl(n.url) !== resultUrl);
+                    }
+                }
+                
+                checkingUrls.delete(resultUrl);
+            }
+            
+            // 如果选中的节点被移除，清空选择
+            if (selectedUrl && !nodes.some((n) => normalizeUrl(n.url) === selectedUrl)) {
+                selectedUrl = "";
+            }
+            
+        } catch (e) {
+            // 出错时清除所有检测中状态
+            for (const item of sample) {
+                checkingUrls.delete(normalizeUrl(item.url));
+            }
+            throw e;
+        } finally {
+            render();
+        }
     }
 
     async function apply(url) {
