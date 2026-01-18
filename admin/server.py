@@ -14,6 +14,10 @@ import sqlite3
 import glob
 from loguru import logger
 
+# 将当前目录添加到模块搜索路径（必须在其他导入前）
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
 # 导入 tomllib 或 tomli 用于解析 TOML 文件
 try:
     import tomllib  # Python 3.11+
@@ -46,9 +50,12 @@ try:
     from update_manager import update_progress_manager
     from update_with_progress import update_with_progress
     has_update_manager = True
-except ImportError:
+    logger.info("成功导入更新进度管理器模块")
+except ImportError as e:
     has_update_manager = False
-    logger.warning("更新进度管理器导入失败，更新进度推送功能将不可用")
+    logger.error(f"更新进度管理器导入失败: {e}")
+    logger.error(f"当前路径: {current_dir}")
+    logger.error(f"sys.path: {sys.path[:3]}")  # 只显示前3个路径避免日志过长
 
 # 导入API管理中心
 try:
@@ -77,11 +84,6 @@ import socket
 import re
 
 # 导入系统统计API模块
-import os
-import sys
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, current_dir)  # 将当前目录添加到模块搜索路径
-
 try:
     # 直接从当前目录导入
     from system_stats_api import handle_system_stats
