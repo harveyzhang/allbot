@@ -38,21 +38,28 @@ class FilesCleanup:
             self.cleanup_days = self._load_config()
 
     def _get_cleanup_days_from_config(self, config):
-        """从配置字典获取清理天数设置
+        """从配置字典或AppConfig对象获取清理天数设置
 
         Args:
-            config: 配置字典
+            config: 配置字典或AppConfig对象
 
         Returns:
             int: 清理天数，0表示禁用清理
         """
         try:
-            # 获取XYBot部分的files-cleanup-days配置
-            cleanup_days = config.get("XYBot", {}).get("files-cleanup-days", 7)
+            # 检查是否是AppConfig对象
+            if hasattr(config, 'xybot'):
+                cleanup_days = config.xybot.files_cleanup_days
+            # 否则当作字典处理
+            elif isinstance(config, dict):
+                cleanup_days = config.get("XYBot", {}).get("files-cleanup-days", 7)
+            else:
+                cleanup_days = 7
+
             logger.info(f"已加载图片文件清理配置: {cleanup_days}天")
             return cleanup_days
         except Exception as e:
-            logger.error(f"从配置字典获取清理天数失败: {e}")
+            logger.error(f"从配置获取清理天数失败: {e}")
             # 默认返回7天
             return 7
 

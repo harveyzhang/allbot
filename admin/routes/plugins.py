@@ -3,6 +3,7 @@
 
 职责：处理插件列表、启用/禁用、配置、市场等 API
 """
+import asyncio
 import os
 import json
 import shutil
@@ -11,6 +12,7 @@ from pathlib import Path
 from fastapi import Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from loguru import logger
+import aiohttp
 
 
 def register_plugins_routes(app, current_dir, plugin_manager=None):
@@ -1048,7 +1050,7 @@ def register_plugins_routes(app, current_dir, plugin_manager=None):
 
     # WebSocket连接管理
     class ConnectionManager:
-        def __init__(self, Depends):
+        def __init__(self):
             self.active_connections: List[WebSocket] = []
 
         async def connect(self, websocket: WebSocket, username: str = Depends(require_auth)):

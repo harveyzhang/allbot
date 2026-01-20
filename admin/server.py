@@ -31,7 +31,6 @@ from core.app_setup import (
     set_bot_instance,
     get_bot_instance,
     config,
-    templates,
     SERVER_RUNNING,
     SERVER_THREAD
 )
@@ -152,6 +151,10 @@ def setup_routes():
     如果需要使用原有的完整路由，请使用 server.py 中的 setup_routes()。
     """
     global app
+
+    # 从 core.app_setup 获取 templates（在 create_app() 后已初始化）
+    from core import app_setup
+    templates = app_setup.templates
 
     # 导入必要的辅助函数（从原 server.py）
     # 注意：这里仍然依赖原 server.py 中的一些函数，因为它们包含复杂的业务逻辑

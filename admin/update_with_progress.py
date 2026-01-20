@@ -72,12 +72,17 @@ async def update_with_progress(version_info: dict, update_progress_manager, get_
         logger.info(f"创建备份目录: {backup_dir}")
         await asyncio.sleep(0.5)
 
-        # 需要更新的文件列表
+        # 需要更新的文件列表（反映最新项目结构）
         update_items = [
-            "admin", "WechatAPI", "utils",
-            "dow/channel", "dow/lib",
-            "version.json", "bot_core.py",
-            "main_config.toml.example", "main.py"
+            "admin",                      # 管理后台（FastAPI + 模块化路由）
+            "WechatAPI",                  # 微信API客户端封装
+            "utils",                      # 工具模块（装饰器、事件管理、插件管理等）
+            "adapter",                    # 多平台适配器（QQ/Telegram/Web/Windows）
+            "bot_core",                   # 核心调度引擎（已重构为模块化目录）
+            "database",                   # 数据持久化层（SQLite/Redis）
+            "version.json",               # 版本信息文件
+            "main_config.template.toml",  # 配置文件模板
+            "main.py"                     # 主程序入口
         ]
 
         # 阶段5: 备份文件 (62.5%)

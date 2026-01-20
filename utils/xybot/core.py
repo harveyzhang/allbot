@@ -31,16 +31,15 @@ def _convert_app_config_to_xybot_config(app_config: AppConfig) -> Dict[str, Any]
         XYBot 配置字典
     """
     xybot_cfg = app_config.xybot
-    auto_restart_cfg = app_config.auto_restart
 
     return {
         "admins": xybot_cfg.admins,
         "ignore_protection": xybot_cfg.ignore_protection,
         "group_wakeup_words": xybot_cfg.group_wakeup_words,
         "enable_group_wakeup": xybot_cfg.enable_group_wakeup,
-        "ignore_mode": auto_restart_cfg.ignore_mode,
-        "whitelist": auto_restart_cfg.whitelist,
-        "blacklist": auto_restart_cfg.blacklist,
+        "ignore_mode": xybot_cfg.ignore_mode,
+        "whitelist": xybot_cfg.whitelist,
+        "blacklist": xybot_cfg.blacklist,
         "robot_names": xybot_cfg.robot_names,
     }
 
@@ -69,9 +68,20 @@ class XYBot:
         # 初始化各个功能模块
         self.profile = ProfileManager()
         self.contacts = ContactManager(bot_client)
-        self.permission = PermissionChecker(config)
-        self.wakeup = WakeupChecker(config, self.profile)
-        self.friend_circle = FriendCircleManager(bot_client)
+        self.permission = PermissionChecker(
+            config.get("ignore_mode", "None"),
+            config.get("whitelist", []),
+            config.get("blacklist", [])
+        )
+        self.wakeup = WakeupChecker(
+            bot_client,
+            self.profile,
+            self.contacts,
+            config.get("group_wakeup_words", ["bot"]),
+            config.get("enable_group_wakeup", True),
+            config.get("robot_names", [])
+        )
+        self.friend_circle = FriendCircleManager(bot_client, self.profile)
         self.msg_db = MessageDB()
 
         # 初始化消息路由器（需要在所有模块初始化后）
