@@ -159,29 +159,24 @@ class XYBot:
 
                 # 如果没有显式设置，则根据协议版本确定
                 if api_prefix == "":
-                    # 读取协议版本配置
+                    # 使用协议配置管理器获取 API 前缀
                     try:
                         import tomllib
+                        from utils.protocol_config import ProtocolConfig
 
                         with open("main_config.toml", "rb") as f:
                             config = tomllib.load(f)
                             protocol_version = config.get("Protocol", {}).get(
-                                "version", "849"
+                                "version", "pad"
                             )
 
-                            # 根据协议版本选择前缀
-                            if protocol_version == "849":
-                                api_prefix = "/VXAPI"
-                                logger.info(f"使用849协议前缀: {api_prefix}")
-                            else:  # 855 或 ipad
-                                api_prefix = "/api"
-                                logger.info(
-                                    f"使用{protocol_version}协议前缀: {api_prefix}"
-                                )
+                            # 使用协议配置管理器获取前缀（避免硬编码）
+                            api_prefix = ProtocolConfig.get_api_prefix(protocol_version)
+                            logger.info(f"使用 {protocol_version} 协议前缀: {api_prefix}")
                     except Exception as e:
                         logger.warning(f"读取协议版本失败，使用默认前缀: {e}")
-                        # 默认使用 849 的前缀
-                        api_prefix = "/VXAPI"
+                        # 使用默认前缀（如果 ProtocolConfig 导入失败，使用硬编码默认值）
+                        api_prefix = "/api"
                         logger.info(f"使用默认协议前缀: {api_prefix}")
 
                 # 获取当前登录的wxid

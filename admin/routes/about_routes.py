@@ -65,16 +65,18 @@ def read_markdown_file(file_path):
         logger.error(f"读取Markdown文件失败: {e}")
         return f"无法读取文件: {file_path}。错误: {str(e)}"
 
-def register_about_routes(app, check_auth):
+def register_about_routes(app):
     """
     注册关于页面相关路由
-    
+
     Args:
         app: FastAPI应用实例
-        check_auth: 认证检查函数
     """
+    from typing import Optional
+    from admin.utils import optional_auth
+
     templates = app.state.templates if hasattr(app.state, "templates") else None
-    
+
     if templates is None:
         # 如果模板未在app.state中定义，获取templates实例
         try:
@@ -83,48 +85,45 @@ def register_about_routes(app, check_auth):
         except ImportError:
             logger.error("无法导入模板对象")
             templates = Jinja2Templates(directory=os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates"))
-    
+
     # 添加favicon.ico路由
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
         """处理网站图标请求"""
         static_dir = Path(__file__).parent.parent / "static" / "img"
         favicon_path = static_dir / "favicon.ico"
-        
+
         if favicon_path.exists():
             return FileResponse(favicon_path)
         else:
             logger.warning(f"favicon.ico文件不存在: {favicon_path}")
             # 返回一个302重定向到/static/img/favicon.ico
             return RedirectResponse(url="/static/img/favicon.ico")
-    
-    # 定义关于页面路由 - 不使用依赖项，手动处理认证
+
+    # 定义关于页面路由 - 使用可选认证依赖注入
     @app.get("/about", response_class=HTMLResponse)
-    async def about_page(request: Request):
+    async def about_page(request: Request, username: Optional[str] = Depends(optional_auth)):
         """处理访问关于页面的请求"""
-        # 手动处理认证
-        try:
-            username = await check_auth(request)
-        except Exception as e:
-            logger.error(f"认证检查失败: {e}")
-            username = "未知用户"  # 提供一个默认值
-        
+        # username 通过依赖注入获取，可能为 None（未认证用户）
+        if username is None:
+            username = "未知用户"
+
         try:
             # 读取三个Markdown文件的内容
             readme_path = project_root / "README.md"
             image_recognition_path = project_root / "引用图片识别功能说明.md"
             plugins_readme_path = project_root / "plugins" / "README.md"
-            
+
             # 读取并转换为HTML
             readme_content = read_markdown_file(readme_path)
             image_recognition_content = read_markdown_file(image_recognition_path)
             plugins_readme_content = read_markdown_file(plugins_readme_path)
-            
+
             # 转换为HTML
             readme_html = convert_markdown_to_html(readme_content)
             image_recognition_html = convert_markdown_to_html(image_recognition_content)
             plugins_readme_html = convert_markdown_to_html(plugins_readme_content)
-            
+
             # 渲染模板
             return templates.TemplateResponse("about.html", {
                 "request": request,
@@ -152,5 +151,5 @@ def register_about_routes(app, check_auth):
                 """,
                 status_code=500
             )
-    
+
     logger.info("关于页面路由注册成功") 

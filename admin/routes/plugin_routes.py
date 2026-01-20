@@ -14,14 +14,15 @@ logger = logging.getLogger("plugin_routes")
 # 创建路由器
 router = APIRouter()
 
-def register_plugin_routes(app, check_auth_func):
+def register_plugin_routes(app):
     """
     注册插件管理相关的路由
 
     Args:
         app: FastAPI应用实例
-        check_auth_func: 认证检查函数
     """
+    # 导入认证依赖
+    from admin.utils import require_auth
     # 导入DOW插件辅助模块
     try:
         from admin.dow_plugins import get_dow_plugins, get_dow_plugin_readme, get_dow_plugin_config_file, get_dow_plugin_config_content
@@ -35,12 +36,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 获取DOW框架插件列表
     @app.get("/api/dow_plugins", response_class=JSONResponse)
-    async def api_dow_plugins_list(request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_dow_plugins_list(username: str = Depends(require_auth)):
         try:
             # 获取插件列表
             plugins_info = get_dow_plugins()
@@ -57,12 +53,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 获取所有框架的插件列表（合并原始框架和DOW框架的插件）
     @app.get("/api/all_plugins", response_class=JSONResponse)
-    async def api_all_plugins_list(request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_all_plugins_list(username: str = Depends(require_auth)):
         try:
             # 获取原始框架插件
             from utils.plugin_manager import plugin_manager
@@ -95,12 +86,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 获取DOW框架插件的README文件内容
     @app.get("/api/dow_plugin_readme", response_class=JSONResponse)
-    async def api_dow_plugin_readme(plugin_id: str, request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_dow_plugin_readme(plugin_id: str, username: str = Depends(require_auth)):
         try:
             # 获取README内容
             result = get_dow_plugin_readme(plugin_id)
@@ -111,12 +97,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 获取DOW框架插件的配置文件路径
     @app.get("/api/dow_plugin_config_file", response_class=JSONResponse)
-    async def api_dow_plugin_config_file(plugin_id: str, request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_dow_plugin_config_file(plugin_id: str, username: str = Depends(require_auth)):
         try:
             # 获取配置文件路径
             result = get_dow_plugin_config_file(plugin_id)
@@ -127,12 +108,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 获取DOW框架插件的配置文件内容
     @app.get("/api/dow_plugin_config_content", response_class=JSONResponse)
-    async def api_dow_plugin_config_content(plugin_id: str, request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_dow_plugin_config_content(plugin_id: str, username: str = Depends(require_auth)):
         try:
             # 获取配置文件内容
             result = get_dow_plugin_config_content(plugin_id)
@@ -143,12 +119,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 启用DOW框架插件
     @app.post("/api/dow_plugins/{plugin_id}/enable", response_class=JSONResponse)
-    async def api_enable_dow_plugin(plugin_id: str, request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_enable_dow_plugin(plugin_id: str, username: str = Depends(require_auth)):
         try:
             # 导入DOW插件辅助模块
             from admin.dow_plugins import enable_dow_plugin
@@ -166,12 +137,7 @@ def register_plugin_routes(app, check_auth_func):
 
     # 禁用DOW框架插件
     @app.post("/api/dow_plugins/{plugin_id}/disable", response_class=JSONResponse)
-    async def api_disable_dow_plugin(plugin_id: str, request: Request):
-        # 检查认证状态
-        username = await check_auth_func(request)
-        if not username:
-            return JSONResponse(status_code=401, content={"success": False, "error": "未认证"})
-
+    async def api_disable_dow_plugin(plugin_id: str, username: str = Depends(require_auth)):
         try:
             # 导入DOW插件辅助模块
             from admin.dow_plugins import disable_dow_plugin

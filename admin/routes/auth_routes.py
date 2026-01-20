@@ -1,0 +1,78 @@
+"""
+认证相关路由模块
+
+职责：处理用户登录、登出等认证操作
+"""
+import time
+from fastapi import Request, Response
+from fastapi.responses import JSONResponse, RedirectResponse
+from loguru import logger
+from itsdangerous import URLSafeSerializer
+
+
+def register_auth_routes(app, config):
+    """
+    注册认证相关路由
+
+    Args:
+        app: FastAPI 应用实例
+        config: 配置字典
+    """
+
+    @app.post("/api/auth/login", response_class=JSONResponse)
+    async def login_api(request: Request, response: Response):
+        """用户登录接口"""
+        try:
+            data = await request.json()
+            username = data.get("username")
+            password = data.get("password")
+            remember = data.get("remember", False)
+
+            # 验证用户名和密码
+            if username == config["username"] and password == config["password"]:
+                # 创建会话数据
+                session_data = {
+                    "authenticated": True,
+                    "username": username,
+                    "expires": time.time() + (30 * 24 * 60 * 60 if remember else 24 * 60 * 60)
+                }
+
+                # 序列化会话数据
+                serializer = URLSafeSerializer(config["secret_key"], "session")
+                session_str = serializer.dumps(session_data)
+
+                # 设置 Cookie
+                response.set_cookie(
+                    key="session",
+                    value=session_str,
+                    max_age=30 * 24 * 60 * 60 if remember else None,
+                    path="/",
+                    httponly=True,
+                    samesite="lax"
+                )
+
+                logger.debug(f"用户 {username} 登录成功，有效期：{'30天' if remember else '浏览器会话'}")
+                return {"success": True, "message": "登录成功"}
+            else:
+                return {"success": False, "error": "用户名或密码错误"}
+        except Exception as e:
+            logger.error(f"登录处理出错: {str(e)}")
+            return {"success": False, "error": f"登录处理出错: {str(e)}"}
+
+    @app.post("/api/auth/logout", response_class=JSONResponse)
+    async def logout_api(request: Request, response: Response):
+        """用户登出接口"""
+        try:
+            response.delete_cookie(key="session", path="/")
+            return {"success": True, "message": "已成功退出登录"}
+        except Exception as e:
+            logger.error(f"退出登录失败: {str(e)}")
+            return {"success": False, "error": f"退出登录失败: {str(e)}"}
+
+    @app.get("/logout")
+    async def logout_page(request: Request):
+        """用户登出页面入口"""
+        response = RedirectResponse(url="/login", status_code=303)
+        response.delete_cookie(key="session", path="/")
+        response.delete_cookie(key="token", path="/")
+        return response

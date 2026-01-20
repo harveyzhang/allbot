@@ -1,0 +1,264 @@
+"""
+页面路由模块
+
+职责：处理所有返回 HTML 页面的路由
+"""
+from fastapi import Request, APIRouter, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
+from loguru import logger
+from datetime import datetime
+from typing import Optional
+from admin.utils import build_page_context
+
+# 创建路由器
+router = APIRouter()
+
+
+def register_page_routes(app, templates, bot_instance, get_version_info, get_system_info=None, get_system_status=None):
+    """
+    注册所有页面路由
+
+    Args:
+        app: FastAPI 应用实例
+        templates: Jinja2Templates 实例
+        bot_instance: Bot 实例
+        get_version_info: 获取版本信息函数
+        get_system_info: 获取系统信息函数（可选）
+        get_system_status: 获取系统状态函数（可选）
+    """
+
+    # 导入认证依赖
+    from admin.utils.auth_dependencies import require_auth_page
+
+    # 登录页面
+    @app.get("/login", response_class=HTMLResponse, tags=["页面"])
+    async def login_page(request: Request):
+        """登录页面"""
+        return templates.TemplateResponse("login.html", {"request": request})
+
+
+    # 主页
+    @app.get("/", response_class=HTMLResponse, tags=["页面"])
+    async def root(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """主页（重定向到 index）"""
+        if not username:
+            return RedirectResponse(url="/login")
+        return RedirectResponse(url="/index")
+
+
+    @app.get("/index", response_class=HTMLResponse, tags=["页面"])
+    async def index(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """仪表板主页"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        # 获取版本信息
+        version_info = get_version_info()
+
+        # 构建上下文
+        context = {
+            "request": request,
+            "bot": bot_instance,
+            "active_page": "index",
+            "version": version_info.get("version", "1.0.0"),
+            "update_available": version_info.get("update_available", False),
+            "latest_version": version_info.get("latest_version", ""),
+            "update_url": version_info.get("update_url", ""),
+            "update_description": version_info.get("update_description", ""),
+            "current_time": datetime.now().strftime("%H:%M:%S")
+        }
+
+        # 如果提供了系统信息函数，添加系统信息
+        if get_system_info and get_system_status:
+            try:
+                system_info = get_system_info()
+                system_status = get_system_status()
+                context.update({
+                    "system_info": system_info,
+                    "uptime": system_status.get("uptime", ""),
+                    "start_time": system_status.get("start_time", ""),
+                    "memory_usage": f"{system_status.get('memory_percent', 0)}%",
+                    "memory_percent": system_status.get("memory_percent", 0),
+                    "cpu_percent": system_status.get("cpu_percent", 0),
+                })
+            except Exception as e:
+                logger.error(f"获取系统信息失败: {e}")
+
+        return templates.TemplateResponse("index.html", context)
+
+
+    # AI 平台管理页面
+    @app.get("/ai-platforms", response_class=HTMLResponse, tags=["页面"])
+    async def ai_platforms_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """AI 平台管理页面"""
+        if not username:
+            return RedirectResponse(url="/login?next=/ai-platforms", status_code=302)
+
+        # 获取 AI 平台插件列表
+        ai_plugins = []
+        try:
+            from utils.plugin_manager import plugin_manager
+            ai_plugins = plugin_manager.get_ai_platform_plugins()
+        except Exception as e:
+            logger.error(f"获取 AI 插件列表失败: {e}")
+
+        context = build_page_context(request, "ai_platforms", get_version_info(), ai_plugins=ai_plugins)
+        return templates.TemplateResponse("ai_platforms.html", context)
+
+
+    # 定时提醒页面
+    @app.get("/reminders", response_class=HTMLResponse, tags=["页面"])
+    async def reminders_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """定时提醒页面"""
+        if not username:
+            logger.warning("未认证用户尝试访问定时提醒页面")
+            return RedirectResponse(url="/login?next=/reminders", status_code=302)
+
+        logger.info(f"用户 {username} 访问定时提醒页面")
+
+        try:
+            context = build_page_context(
+                request, "reminders", get_version_info(),
+                username=username,
+                title="定时提醒",
+                current_page="reminders"
+            )
+            return templates.TemplateResponse("reminders.html", context)
+        except Exception as e:
+            logger.exception(f"加载定时提醒页面模板失败: {str(e)}")
+            return HTMLResponse(f"<h1>加载定时提醒页面失败</h1><p>错误: {str(e)}</p>")
+
+
+    # 朋友圈页面
+    @app.get("/friend_circle", response_class=HTMLResponse, tags=["页面"])
+    async def friend_circle_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """朋友圈页面"""
+        try:
+            if not username:
+                return RedirectResponse(url="/login?next=/friend_circle", status_code=303)
+
+            logger.debug(f"用户 {username} 访问朋友圈页面")
+
+            # 获取 bot 实例的 wxid
+            bot_wxid = ""
+            if bot_instance and hasattr(bot_instance, "wxid"):
+                bot_wxid = bot_instance.wxid
+                logger.debug(f"当前机器人 wxid: {bot_wxid}")
+
+            context = build_page_context(request, "friend_circle", get_version_info(), bot_wxid=bot_wxid)
+            return templates.TemplateResponse("friend_circle.html", context)
+        except Exception as e:
+            logger.error(f"朋友圈页面访问失败: {str(e)}")
+            return RedirectResponse(url="/login?next=/friend_circle", status_code=303)
+
+
+    # 插件管理页面
+    @app.get("/plugins", response_class=HTMLResponse, tags=["页面"])
+    async def plugins_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """插件管理页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "plugins", get_version_info())
+        return templates.TemplateResponse("plugins.html", context)
+
+
+    # 插件市场页面
+    @app.get("/plugin-market", response_class=HTMLResponse, tags=["页面"])
+    async def plugin_market_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """插件市场页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "plugin_market", get_version_info())
+        return templates.TemplateResponse("plugin_market.html", context)
+
+
+    # 联系人页面
+    @app.get("/contacts", response_class=HTMLResponse, tags=["页面"])
+    async def contacts_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """联系人管理页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "contacts", get_version_info())
+        return templates.TemplateResponse("contacts.html", context)
+
+
+    # 系统监控页面
+    @app.get("/system", response_class=HTMLResponse, tags=["页面"])
+    async def system_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """系统监控页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "system", get_version_info())
+        return templates.TemplateResponse("system.html", context)
+
+
+    # 设置页面
+    @app.get("/settings", response_class=HTMLResponse, tags=["页面"])
+    async def settings_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """系统设置页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "settings", get_version_info())
+        return templates.TemplateResponse("settings.html", context)
+
+
+    # 适配器管理页面
+    @app.get("/adapters", response_class=HTMLResponse, tags=["页面"])
+    async def adapters_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """适配器管理页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "adapters", get_version_info())
+        return templates.TemplateResponse("adapters.html", context)
+
+
+    # Web 聊天页面
+    @app.get("/webchat", response_class=HTMLResponse, tags=["页面"])
+    async def webchat_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """Web 聊天页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "webchat", get_version_info())
+        return templates.TemplateResponse("webchat.html", context)
+
+
+    # 文件管理页面
+    @app.get("/files", response_class=HTMLResponse, tags=["页面"])
+    async def files_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """文件管理页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "files", get_version_info())
+        return templates.TemplateResponse("files.html", context)
+
+
+    # GitHub 代理页面
+    @app.get("/github-proxy", response_class=HTMLResponse, tags=["页面"])
+    async def github_proxy_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """GitHub 代理设置页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "github_proxy", get_version_info())
+        return templates.TemplateResponse("github_proxy.html", context)
+
+
+    # 通知设置页面
+    @app.get("/notification", response_class=HTMLResponse, tags=["页面"])
+    async def notification_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """通知设置页面"""
+        if not username:
+            return RedirectResponse(url="/login")
+
+        context = build_page_context(request, "notification", get_version_info())
+        return templates.TemplateResponse("notification.html", context)
+
+    logger.info("页面路由注册完成")

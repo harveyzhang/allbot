@@ -15,44 +15,7 @@ import redis.asyncio as aioredis
 import websockets
 from loguru import logger
 
-
-class AdapterLogger:
-    """简单的日志包装器，允许通过配置控制输出"""
-
-    def __init__(self, name: str, enabled: bool = True, level: str = "INFO") -> None:
-        self.name = name
-        self.enabled = bool(enabled)
-        try:
-            self.threshold = logger.level(level.upper()).no
-        except ValueError:
-            self.threshold = logger.level("INFO").no
-
-    def log(self, level: str, message: str, *args, **kwargs) -> None:
-        level = level.upper()
-        try:
-            level_no = logger.level(level).no
-        except ValueError:
-            level_no = logger.level("INFO").no
-        if not self.enabled and level_no < logger.level("ERROR").no:
-            return
-        if level_no < self.threshold:
-            return
-        logger.opt(depth=1).log(level, f"[Adapter:{self.name}] {message}", *args, **kwargs)
-
-    def debug(self, msg: str, *args, **kwargs) -> None:
-        self.log("DEBUG", msg, *args, **kwargs)
-
-    def info(self, msg: str, *args, **kwargs) -> None:
-        self.log("INFO", msg, *args, **kwargs)
-
-    def warning(self, msg: str, *args, **kwargs) -> None:
-        self.log("WARNING", msg, *args, **kwargs)
-
-    def error(self, msg: str, *args, **kwargs) -> None:
-        self.log("ERROR", msg, *args, **kwargs)
-
-    def success(self, msg: str, *args, **kwargs) -> None:
-        self.log("SUCCESS", msg, *args, **kwargs)
+from adapter.base import AdapterLogger
 
 
 class QQAdapter:

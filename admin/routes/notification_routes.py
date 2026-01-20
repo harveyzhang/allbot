@@ -1,0 +1,240 @@
+"""
+通知管理路由模块
+
+职责：处理 PushPlus 通知设置、测试和历史记录
+"""
+import os
+from typing import Optional
+from pathlib import Path
+from fastapi import Request, Depends
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+from loguru import logger
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+
+
+def register_notification_routes(app, templates):
+    """
+    注册通知管理相关路由
+
+    Args:
+        app: FastAPI 应用实例
+        templates: Jinja2 模板实例
+    """
+    from admin.utils import require_auth, require_auth_page
+    from core.app_setup import get_version_info
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    @app.get("/notification", response_class=HTMLResponse)
+    async def notification_page(request: Request, username: Optional[str] = Depends(require_auth_page)):
+        """PushPlus 通知设置页面"""
+        if not username:
+            return RedirectResponse(url="/login?next=/notification")
+
+        logger.debug(f"用户 {username} 访问通知设置页面")
+
+        try:
+            version_info = get_version_info()
+            version = version_info.get("version", "1.0.0")
+            update_available = version_info.get("update_available", False)
+            latest_version = version_info.get("latest_version", "")
+            update_url = version_info.get("update_url", "")
+            update_description = version_info.get("update_description", "")
+        except Exception as e:
+            logger.error(f"获取版本信息失败: {str(e)}")
+            version = "1.0.0"
+            update_available = False
+            latest_version = ""
+            update_url = ""
+            update_description = ""
+
+        return templates.TemplateResponse(
+            "notification.html",
+            {
+                "request": request,
+                "username": username,
+                "version": version,
+                "update_available": update_available,
+                "latest_version": latest_version,
+                "update_url": update_url,
+                "update_description": update_description,
+                "testResult": None,
+                "notificationHistory": []
+            }
+        )
+
+    @app.get("/api/notification/settings", response_class=JSONResponse)
+    async def api_get_notification_settings(request: Request, username: str = Depends(require_auth)):
+        """API: 获取通知设置"""
+        try:
+            config_path = Path(current_dir).parent / "main_config.toml"
+            try:
+                with open(config_path, "rb") as f:
+                    config_data = tomllib.load(f)
+            except Exception as e:
+                logger.error(f"读取配置文件失败: {str(e)}")
+                return JSONResponse(status_code=500, content={
+                    "success": False,
+                    "message": f"读取配置文件失败: {str(e)}"
+                })
+
+            notification_config = config_data.get("Notification", {})
+
+            return JSONResponse(content={
+                "success": True,
+                "config": notification_config
+            })
+        except Exception as e:
+            logger.error(f"获取通知设置失败: {str(e)}")
+            return JSONResponse(content={
+                "success": False,
+                "message": f"获取通知设置失败: {str(e)}"
+            })
+
+    @app.post("/api/notification/settings", response_class=JSONResponse)
+    async def api_update_notification_settings(request: Request, username: str = Depends(require_auth)):
+        """API: 更新通知设置"""
+        try:
+            new_config = await request.json()
+
+            config_path = Path(current_dir).parent / "main_config.toml"
+            try:
+                with open(config_path, "rb") as f:
+                    config_data = tomllib.load(f)
+            except Exception as e:
+                logger.error(f"读取配置文件失败: {str(e)}")
+                return JSONResponse(content={
+                    "success": False,
+                    "message": f"读取配置文件失败: {str(e)}"
+                })
+
+            config_data["Notification"] = new_config
+
+            # 手动构建 TOML 格式
+            with open(config_path, "w", encoding="utf-8") as f:
+                for section, section_data in config_data.items():
+                    f.write(f"[{section}]\n")
+                    for key, value in section_data.items():
+                        if isinstance(value, bool):
+                            f.write(f"{key} = {str(value).lower()}\n")
+                        elif isinstance(value, (int, float)):
+                            f.write(f"{key} = {value}\n")
+                        elif isinstance(value, dict):
+                            f.write(f"\n[{section}.{key}]\n")
+                            for sub_key, sub_value in value.items():
+                                if isinstance(sub_value, bool):
+                                    f.write(f"{sub_key} = {str(sub_value).lower()}\n")
+                                elif isinstance(sub_value, (int, float)):
+                                    f.write(f"{sub_key} = {sub_value}\n")
+                                else:
+                                    escaped_value = str(sub_value).replace('"', '\\"')
+                                    f.write(f"{sub_key} = \"{escaped_value}\"\n")
+                        else:
+                            escaped_value = str(value).replace('"', '\\"')
+                            f.write(f"{key} = \"{escaped_value}\"\n")
+                    f.write("\n")
+
+            # 重新加载通知服务
+            try:
+                from utils.notification_service import get_notification_service
+                notification_service = get_notification_service()
+                if notification_service:
+                    notification_service.update_config(new_config)
+                    logger.info("通知服务配置已更新")
+            except Exception as e:
+                logger.error(f"重新加载通知服务失败: {str(e)}")
+
+            return JSONResponse(content={
+                "success": True,
+                "message": "通知设置已更新"
+            })
+        except Exception as e:
+            logger.error(f"更新通知设置失败: {str(e)}")
+            return JSONResponse(content={
+                "success": False,
+                "message": f"更新通知设置失败: {str(e)}"
+            })
+
+    @app.post("/api/notification/test", response_class=JSONResponse)
+    async def api_send_test_notification(request: Request, username: str = Depends(require_auth)):
+        """API: 发送测试通知"""
+        try:
+            from core.app_setup import get_bot_status
+            bot_status = get_bot_status()
+            wxid = bot_status.get("wxid", "")
+
+            if not wxid:
+                return JSONResponse(content={
+                    "success": False,
+                    "message": "无法获取当前微信 ID"
+                })
+
+            from utils.notification_service import get_notification_service
+            notification_service = get_notification_service()
+
+            if not notification_service:
+                return JSONResponse(content={
+                    "success": False,
+                    "message": "通知服务未初始化"
+                })
+
+            if not notification_service.enabled:
+                return JSONResponse(content={
+                    "success": False,
+                    "message": "通知服务未启用"
+                })
+
+            if not notification_service.token:
+                return JSONResponse(content={
+                    "success": False,
+                    "message": "PushPlus Token 未设置"
+                })
+
+            success = await notification_service.send_test_notification(wxid)
+
+            if success:
+                return JSONResponse(content={
+                    "success": True,
+                    "message": "测试通知已发送"
+                })
+            else:
+                return JSONResponse(content={
+                    "success": False,
+                    "message": "发送测试通知失败"
+                })
+        except Exception as e:
+            logger.error(f"发送测试通知失败: {str(e)}")
+            return JSONResponse(content={
+                "success": False,
+                "message": f"发送测试通知失败: {str(e)}"
+            })
+
+    @app.get("/api/notification/history", response_class=JSONResponse)
+    async def api_get_notification_history(request: Request, username: str = Depends(require_auth)):
+        """API: 获取通知历史"""
+        try:
+            from utils.notification_service import get_notification_service
+            notification_service = get_notification_service()
+
+            if not notification_service:
+                return JSONResponse(content={
+                    "success": False,
+                    "message": "通知服务未初始化"
+                })
+
+            history = notification_service.get_history(limit=20)
+
+            return JSONResponse(content={
+                "success": True,
+                "history": history
+            })
+        except Exception as e:
+            logger.error(f"获取通知历史失败: {str(e)}")
+            return JSONResponse(content={
+                "success": False,
+                "message": f"获取通知历史失败: {str(e)}"
+            })

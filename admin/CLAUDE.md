@@ -6,6 +6,12 @@
 
 ## 📋 变更记录
 
+### 2026-01-19 14:25:00 - 🎉 重大重构完成
+- **完成 server.py 模块化重构**：从 9,153 行巨型文件拆分为 13 个独立模块
+- **架构升级**：采用 SOLID 原则，基于 APIRouter 的功能域垂直拆分
+- **代码质量提升**：主文件减少 97% (391KB → 11KB)，消除重复代码
+- **向后兼容**：保留原文件备份 (server.py.backup)，平滑迁移
+
 ### 2026-01-18 20:57:24 - 初始文档创建
 - 完成管理后台架构梳理
 - 建立 API 路由索引
@@ -165,33 +171,66 @@ async def protected_route(request: Request):
 - `admin/static/js/file-manager.js`：文件管理功能
 - `admin/static/css/qrcode.css`：二维码样式
 
-### 目录结构
+### 目录结构（已重构 ✨）
 
 ```
 admin/
-├── server.py              # FastAPI 主应用入口
-├── run_server.py          # 独立启动脚本
-├── routes/                # API 路由模块
+├── server.py                    # 主启动文件（已重构，310行）
+├── server.py.backup             # 原文件备份（9,153行）
+├── server_refactored.py         # 重构版本（已合并到 server.py）
+├── run_server.py                # 独立启动脚本
+│
+├── core/                        # 🆕 核心模块
 │   ├── __init__.py
-│   ├── register_routes.py # 路由注册器
-│   └── plugin_routes.py   # 插件相关 API
-├── templates/             # Jinja2 HTML 模板
-│   ├── ai_platforms.html  # AI 平台管理页
-│   ├── notification.html  # 通知设置页
+│   └── app_setup.py             # FastAPI 应用创建与配置（343行）
+│
+├── routes/                      # 🆕 模块化路由（功能域垂直拆分）
+│   ├── __init__.py              # 路由聚合器（153行）
+│   ├── pages.py                 # 页面路由（430行）
+│   ├── system.py                # 系统管理 API（269行）
+│   ├── plugins.py               # 插件管理 API（1,401行）
+│   ├── files.py                 # 文件管理 API（1,091行）
+│   ├── contacts.py              # 联系人消息 API（1,713行）
+│   ├── misc.py                  # 其他功能 API（1,104行）
+│   ├── register_routes.py       # 旧路由注册器（保留兼容）
+│   ├── plugin_routes.py         # 旧插件路由（保留兼容）
+│   ├── about_routes.py          # 关于页面路由
+│   └── adapter_routes.py        # 适配器管理路由
+│
+├── utils/                       # 🆕 工具模块
+│   ├── __init__.py
+│   ├── response_models.py       # 标准响应模型（54行）
+│   ├── route_helpers.py         # 路由辅助函数（137行）
+│   ├── auth_dependencies.py     # 认证依赖注入
+│   └── plugin_manager.py        # 插件管理工具
+│
+├── templates/                   # Jinja2 HTML 模板
+│   ├── ai_platforms.html        # AI 平台管理页
+│   ├── notification.html        # 通知设置页
 │   └── ...
-├── static/                # 静态资源
-│   ├── css/               # 样式文件
-│   ├── js/                # JavaScript 文件
-│   └── img/               # 图片资源
-├── utils/                 # 管理后台工具函数
-│   └── plugin_manager.py  # 插件管理工具
-├── auth_helper.py         # 认证辅助函数
-├── system_stats_api.py    # 系统监控 API
-├── friend_circle_api.py   # 朋友圈 API
-├── reminder_api.py        # 提醒 API
-├── terminal_routes.py     # 终端 WebSocket
-└── switch_account_api.py  # 账号切换 API
+│
+├── static/                      # 静态资源
+│   ├── css/                     # 样式文件
+│   ├── js/                      # JavaScript 文件
+│   └── img/                     # 图片资源
+│
+├── auth_helper.py               # 认证辅助函数（旧版，待迁移）
+├── system_stats_api.py          # 系统监控 API（独立模块）
+├── friend_circle_api.py         # 朋友圈 API（独立模块）
+├── reminder_api.py              # 提醒 API（独立模块）
+├── terminal_routes.py           # 终端 WebSocket（独立模块）
+├── switch_account_api.py        # 账号切换 API（独立模块）
+├── account_manager.py           # 账号管理器
+├── adapter_manager.py           # 适配器管理器
+└── github_proxy_api.py          # GitHub 代理 API
 ```
+
+**重构亮点**：
+- ✅ 主文件从 391KB 减少到 11KB（减少 97%）
+- ✅ 采用 `APIRouter` 实现模块化，符合 FastAPI 最佳实践
+- ✅ 按功能域垂直拆分：pages、system、plugins、files、contacts、misc
+- ✅ 单一职责原则：每个模块专注一个功能领域
+- ✅ 依赖注入：通过 `Depends()` 解耦模块间依赖
 
 ---
 
@@ -321,9 +360,90 @@ uvicorn.run(app, host="0.0.0.0", port=9090,
 
 ---
 
-## 🔧 扩展指引
+## 🔧 扩展指引（已更新 ✨）
 
-### 添加新 API 路由
+### 重构后的开发模式
+
+重构后采用模块化架构，新增功能更简单、更清晰。
+
+### 添加新 API 路由（推荐方式）
+
+**步骤**：
+1. 在对应的 `routes/*.py` 模块中添加路由函数
+2. 无需修改其他文件，自动生效
+
+**示例**：在插件管理中添加新功能
+```python
+# admin/routes/plugins.py
+
+def register_plugins_routes(app, check_auth, current_dir, plugin_manager):
+    """注册插件管理路由"""
+
+    # 现有路由...
+
+    # 🆕 添加新路由
+    @app.get("/api/plugins/statistics")
+    async def get_plugin_statistics(request: Request):
+        """获取插件统计信息"""
+        if not check_auth(request):
+            return JSONResponse({"error": "未授权"}, status_code=401)
+
+        # 实现逻辑
+        stats = {
+            "total": len(plugin_manager.plugins),
+            "enabled": sum(1 for p in plugin_manager.plugins if p.enabled),
+            "disabled": sum(1 for p in plugin_manager.plugins if not p.enabled)
+        }
+        return JSONResponse(stats)
+```
+
+### 添加新路由模块（高级）
+
+如果需要添加全新的功能域（如"任务管理"），创建新模块：
+
+**步骤**：
+1. 创建 `admin/routes/tasks.py`
+2. 定义路由注册函数
+3. 在 `admin/routes/__init__.py` 中注册
+
+**示例**：
+```python
+# admin/routes/tasks.py
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+def register_tasks_routes(app, check_auth):
+    """注册任务管理路由"""
+
+    @app.get("/api/tasks/list")
+    async def get_tasks(request: Request):
+        if not check_auth(request):
+            return JSONResponse({"error": "未授权"}, status_code=401)
+        return JSONResponse({"tasks": []})
+
+    @app.post("/api/tasks/create")
+    async def create_task(request: Request):
+        if not check_auth(request):
+            return JSONResponse({"error": "未授权"}, status_code=401)
+        # 创建任务逻辑
+        return JSONResponse({"success": True})
+```
+
+```python
+# admin/routes/__init__.py
+def register_refactored_routes(app, templates, bot_instance, ...):
+    # 现有注册...
+
+    # 🆕 注册任务管理路由
+    try:
+        from .tasks import register_tasks_routes
+        register_tasks_routes(app, check_auth)
+        logger.info("✓ 任务管理路由注册成功")
+    except Exception as e:
+        logger.error(f"✗ 任务管理路由注册失败: {e}")
+```
+
+### 添加新 API 路由（旧方式，不推荐）
 
 **步骤**：
 1. 在 `admin/routes/` 中创建新文件（如 `my_routes.py`）
@@ -362,4 +482,15 @@ uvicorn.run(app, host="0.0.0.0", port=9090,
 
 ---
 
-**维护者提示**：管理后台代码较为复杂，修改时请确保不破坏现有 API 兼容性。建议使用 API 版本控制（如 `/api/v2/`）实现新功能。
+**维护者提示**：
+
+1. **重构完成**：管理后台已完成模块化重构（2026-01-19），代码质量显著提升
+2. **开发规范**：新增功能请遵循模块化架构，在对应的 `routes/*.py` 中添加路由
+3. **向后兼容**：原 `server.py` 已备份为 `server.py.backup`，如遇问题可快速回滚
+4. **API 兼容性**：修改时请确保不破坏现有 API 兼容性，建议使用版本控制（如 `/api/v2/`）
+5. **文档同步**：添加新功能后请更新本文档的 API 列表
+
+**重构详情**：
+- 📄 重构方案：[server_refactor_plan.md](./server_refactor_plan.md)
+- 📊 优化报告：[CODE_OPTIMIZATION_REPORT.md](./CODE_OPTIMIZATION_REPORT.md)
+- 🔐 认证重构：[AUTH_REFACTOR_GUIDE.md](./AUTH_REFACTOR_GUIDE.md)

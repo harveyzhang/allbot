@@ -1,16 +1,11 @@
 """
-AllBot 管理后台 - 主启动文件（已重构）
+AllBot 管理后台 - 重构版启动文件
 
-本文件已完成模块化重构，采用现代化架构设计：
-- 核心应用：core/app_setup.py
-- 路由模块：routes/*.py (pages, system, plugins, files, contacts, misc)
-- 工具模块：utils/*.py (response_models, route_helpers, auth_dependencies)
-
-原 9,153 行巨型文件已拆分为 13 个独立模块，符合 SOLID 原则。
-备份文件：server.py.backup (391KB)
+这是重构后的模块化版本，与原 server.py 并存。
+使用新的模块化架构，代码更清晰、更易维护。
 
 使用方法：
-    from admin.server import start_server
+    from admin.server_refactored import start_server
     start_server(bot=bot_instance)
 """
 import os

@@ -21,46 +21,9 @@ import redis
 import requests
 from loguru import logger
 
+from adapter.base import AdapterLogger
+
 MediaInput = Union[str, bytes, os.PathLike]
-
-
-class AdapterLogger:
-    """简单的适配器日志包装器，支持按配置控制级别与开关"""
-
-    def __init__(self, name: str, enabled: bool = True, level: str = "INFO"):
-        self.name = name
-        self.enabled = bool(enabled)
-        try:
-            self.threshold = logger.level(level.upper()).no
-        except ValueError:
-            self.threshold = logger.level("INFO").no
-
-    def log(self, level: str, message: str, *args, **kwargs):
-        level = level.upper()
-        try:
-            level_no = logger.level(level).no
-        except ValueError:
-            level_no = logger.level("INFO").no
-        if not self.enabled and level_no < logger.level("ERROR").no:
-            return
-        if level_no < self.threshold:
-            return
-        logger.opt(depth=1).log(level, f"[Adapter:{self.name}] {message}", *args, **kwargs)
-
-    def debug(self, msg, *args, **kwargs):
-        self.log("DEBUG", msg, *args, **kwargs)
-
-    def info(self, msg, *args, **kwargs):
-        self.log("INFO", msg, *args, **kwargs)
-
-    def warning(self, msg, *args, **kwargs):
-        self.log("WARNING", msg, *args, **kwargs)
-
-    def error(self, msg, *args, **kwargs):
-        self.log("ERROR", msg, *args, **kwargs)
-
-    def success(self, msg, *args, **kwargs):
-        self.log("SUCCESS", msg, *args, **kwargs)
 
 
 class TelegramBotClient:

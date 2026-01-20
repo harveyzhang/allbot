@@ -1,11 +1,24 @@
 # AllBot - 智能微信机器人系统
 
 > **本文档为 AI 辅助开发优化而设计**
-> 最后更新：2026-01-18 20:57:24
+> 最后更新：2026-01-20 12:42:09
 
 ---
 
 ## 📋 变更记录 (Changelog)
+
+### 2026-01-20 12:42:09 - 核心模块文档更新（排除插件）
+- **新增 bot_core/ 模块文档**：详细说明重构后的 7 个子模块（约 983 行）
+- **更新 adapter/ 模块文档**：补充 base.py 基类说明（约 3,170 行）
+- **更新 utils/ 模块文档**：更新代码统计（32 个文件，约 9,263 行）
+- **确认其他模块文档**：WechatAPI、database、admin 模块文档已完善
+- **代码统计更新**：核心模块（不含插件）约 132 个 Python 文件
+
+### 2026-01-19 21:10:00 - 架构文档重构
+- **聚焦核心架构**：简化插件系统描述，突出核心模块
+- **更新模块统计**：113 个核心 Python 文件，56 个插件
+- **优化 Mermaid 图**：清晰展示核心模块关系
+- **补充容器化信息**：Docker 部署与 Redis 集成
 
 ### 2026-01-18 20:57:24 - 初始化 AI 上下文文档
 - 创建根级 CLAUDE.md 及模块级文档
@@ -41,7 +54,7 @@ AllBot 是一个**基于微信协议的智能机器人系统**，通过插件化
 | **消息队列** | RabbitMQ (可选，aio_pika) |
 | **任务调度** | APScheduler (AsyncIOScheduler) |
 | **日志系统** | Loguru |
-| **前端** | Bootstrap 5 + Chart.js + AOS 动画库 |
+| **前端** | Bootstrap 5 + Chart.js + Vue 3 |
 | **容器化** | Docker + Docker Compose |
 | **微信协议** | xywechatpad-binary (多版本支持) |
 
@@ -82,58 +95,68 @@ AllBot 是一个**基于微信协议的智能机器人系统**，通过插件化
 
 ```mermaid
 graph TD
-    A["(根) AllBot 项目"] --> B["核心模块"];
+    A["AllBot 项目根目录"] --> B["核心引擎"];
     A --> C["插件系统"];
     A --> D["管理后台"];
     A --> E["适配器层"];
     A --> F["基础设施"];
 
-    B --> B1["bot_core.py<br/>核心调度引擎"];
-    B --> B2["main.py<br/>程序入口"];
+    B --> B1["bot_core.py<br/>841 行 | 核心调度引擎"];
+    B --> B2["main.py<br/>467 行 | 程序入口"];
     B --> B3["WechatAPI/<br/>微信客户端封装"];
 
-    C --> C1["plugins/<br/>56+ 功能插件"];
-    C --> C2["utils/plugin_manager<br/>插件管理器"];
-    C --> C3["utils/plugin_base<br/>插件基类"];
+    C --> C1["plugins/<br/>56 个功能插件"];
+    C --> C2["utils/plugin_manager.py<br/>581 行 | 插件管理器"];
+    C --> C3["utils/plugin_base.py<br/>插件基类"];
 
-    D --> D1["admin/server.py<br/>FastAPI 后台"];
-    D --> D2["admin/static/<br/>前端资源"];
-    D --> D3["admin/routes/<br/>API 路由"];
+    D --> D1["admin/server.py<br/>310 行 | FastAPI 后台"];
+    D --> D2["admin/routes/<br/>模块化路由"];
+    D --> D3["admin/static/<br/>前端资源"];
 
     E --> E1["adapter/qq<br/>QQ 适配器"];
     E --> E2["adapter/tg<br/>Telegram 适配器"];
     E --> E3["adapter/web<br/>Web 适配器"];
     E --> E4["adapter/win<br/>Windows 适配器"];
 
-    F --> F1["database/<br/>数据层"];
+    F --> F1["database/<br/>数据持久化"];
     F --> F2["utils/<br/>工具模块"];
-    F --> F3["Docker<br/>容器化"];
+    F --> F3["Docker<br/>容器化部署"];
 
-    click B1 "./CLAUDE.md#核心调度引擎" "查看核心调度文档"
+    click B1 "#核心调度引擎" "查看核心调度文档"
     click C1 "./plugins/CLAUDE.md" "查看插件系统文档"
     click D1 "./admin/CLAUDE.md" "查看管理后台文档"
     click E1 "./adapter/CLAUDE.md" "查看适配器文档"
     click F1 "./database/CLAUDE.md" "查看数据层文档"
     click F2 "./utils/CLAUDE.md" "查看工具模块文档"
     click B3 "./WechatAPI/CLAUDE.md" "查看 WechatAPI 文档"
+
+    style B1 fill:#e1f5ff
+    style D1 fill:#fff3e0
+    style C2 fill:#f3e5f5
+    style E1 fill:#e8f5e9
 ```
 
 ---
 
 ## 📚 模块索引
 
-| 模块路径 | 职责 | 入口文件 | 文档链接 |
-|---------|------|----------|---------|
-| **核心引擎** | 消息调度、事件分发、插件协调 | `bot_core.py` | [详细文档](./bot_core/CLAUDE.md) |
-| **主程序** | 启动流程、配置管理、监控重启 | `main.py` | - |
-| **WechatAPI/** | 微信协议封装（好友/群聊/朋友圈） | `WechatAPI/__init__.py` | [详细文档](./WechatAPI/CLAUDE.md) |
-| **plugins/** | 56+ 功能插件（AI/游戏/工具/电商） | 各插件 `main.py` | [详细文档](./plugins/CLAUDE.md) |
-| **admin/** | Web 管理后台（FastAPI） | `admin/run_server.py` | [详细文档](./admin/CLAUDE.md) |
-| **adapter/** | 多平台适配器（QQ/TG/Web/Win） | `adapter/loader.py` | [详细文档](./adapter/CLAUDE.md) |
-| **database/** | 数据持久化（SQLite/Redis） | `database/__init__.py` | [详细文档](./database/CLAUDE.md) |
-| **utils/** | 工具函数库（装饰器/日志/性能监控） | `utils/*.py` | [详细文档](./utils/CLAUDE.md) |
-| **docs/** | 用户手册与开发指南 | `docs/*.md` | - |
-| **Docker** | 容器化部署配置 | `Dockerfile`, `docker-compose.yml` | - |
+| 模块路径 | 职责 | 核心文件 | 代码量 | 文档链接 |
+|---------|------|----------|--------|---------|
+| **核心引擎** | 消息调度、事件分发、插件协调 | `bot_core.py` | 841 行 | - |
+| **主程序** | 启动流程、配置管理、监控重启 | `main.py` | 467 行 | - |
+| **WechatAPI/** | 微信协议封装（好友/群聊/朋友圈） | `Client/*.py` | 16 个文件 | [详细文档](./WechatAPI/CLAUDE.md) |
+| **plugins/** | 56 个功能插件（AI/游戏/工具/电商） | 各插件 `main.py` | 56 个插件 | [详细文档](./plugins/CLAUDE.md) |
+| **admin/** | Web 管理后台（FastAPI，已重构） | `server.py` | 310 行 | [详细文档](./admin/CLAUDE.md) |
+| **adapter/** | 多平台适配器（QQ/TG/Web/Win） | `loader.py` | 121 行 | [详细文档](./adapter/CLAUDE.md) |
+| **database/** | 数据持久化（SQLite/Redis） | `XYBotDB.py` | 9 个文件 | [详细文档](./database/CLAUDE.md) |
+| **utils/** | 工具函数库（装饰器/日志/性能监控） | `*.py` | 21 个文件 | [详细文档](./utils/CLAUDE.md) |
+| **docs/** | 用户手册与开发指南 | `*.md` | 12 个文档 | - |
+| **Docker** | 容器化部署配置 | `Dockerfile`, `docker-compose.yml` | - | - |
+
+**统计数据**：
+- 核心模块 Python 文件：113 个（不含插件）
+- 插件数量：56 个
+- 核心代码总行数：约 1,889 行（bot_core + main + plugin_manager）
 
 ---
 
@@ -175,6 +198,152 @@ python main.py
 
 ---
 
+## 🔑 核心模块详解
+
+### 1. 核心调度引擎（bot_core.py）
+
+**职责**：
+- 消息接收与预处理
+- 事件分发到插件系统
+- 优先级队列管理
+- 异步任务调度
+
+**关键类**：
+```python
+class BotCore:
+    async def handle_message(self, message: dict):
+        """消息处理主流程"""
+        # 1. 消息预处理
+        # 2. 事件分发（EventManager.emit）
+        # 3. 插件优先级调度
+        # 4. 响应路由（ReplyRouter）
+```
+
+**启动流程**：
+```
+main.py → bot_core() → 初始化 WechatAPI → 加载插件 → 启动消息循环
+```
+
+---
+
+### 2. 插件系统（plugins/ + utils/plugin_manager.py）
+
+**设计模式**：
+- **装饰器驱动**：通过 `@on_text_message(priority=80)` 注册事件处理器
+- **优先级队列**：0-99，值越高越优先（默认 50）
+- **热加载支持**：运行时启用/禁用插件
+
+**插件开发示例**：
+```python
+from utils.plugin_base import PluginBase
+from utils.decorators import on_text_message
+
+class MyPlugin(PluginBase):
+    description = "我的插件"
+    author = "作者名"
+    version = "1.0.0"
+
+    @on_text_message(priority=80)
+    async def handle_text(self, bot, message: dict):
+        if message["content"] == "你好":
+            await bot.send_text(message["wxid"], "你好！")
+            return False  # 停止后续插件处理
+        return True  # 继续执行
+```
+
+**插件统计**（56 个）：
+- AI 平台插件：Dify、OpenAI、FastGPT、SiliconFlow 等
+- 娱乐插件：钓鱼、表情包生成、游戏等
+- 工具插件：文件管理、提醒、联系人管理等
+- 电商插件：京东返利、淘宝客等
+
+详细列表见 [plugins/CLAUDE.md](./plugins/CLAUDE.md)
+
+---
+
+### 3. 管理后台（admin/）
+
+**架构亮点**（2026-01-19 重构完成）：
+- **模块化路由**：从 9,153 行巨型文件拆分为 13 个独立模块
+- **代码减少 97%**：主文件从 391KB 减少到 11KB
+- **功能域拆分**：pages、system、plugins、files、contacts、misc
+
+**核心功能**：
+- 插件管理：启用/禁用/配置编辑
+- 系统监控：CPU/内存/磁盘实时图表
+- 文件管理：上传/下载/删除
+- 账号管理：多微信账号切换
+- 终端管理：Web 终端 WebSocket
+
+**技术栈**：
+- 后端：FastAPI + Jinja2
+- 前端：Bootstrap 5 + Vue 3 + Chart.js
+
+详细文档见 [admin/CLAUDE.md](./admin/CLAUDE.md)
+
+---
+
+### 4. 适配器层（adapter/）
+
+**支持平台**：
+- **QQ**：OneBot 协议
+- **Telegram**：Bot API
+- **Web**：WebSocket 聊天
+- **Windows**：本地通知
+
+**统一消息格式**：
+```python
+{
+    "platform": "qq",            # 平台标识
+    "wxid": "user_id",           # 发送者 ID
+    "roomid": "group_id",        # 群组 ID（私聊时为空）
+    "content": "消息内容",
+    "type": 1,                   # 消息类型（1=文本, 3=图片）
+    "timestamp": 1234567890,
+    "isSelf": False,
+    "nickname": "发送者昵称"
+}
+```
+
+详细文档见 [adapter/CLAUDE.md](./adapter/CLAUDE.md)
+
+---
+
+### 5. 数据持久化（database/）
+
+**数据库模块**：
+- `XYBotDB.py`：主数据库（用户、群组、配置）
+- `keyvalDB.py`：键值存储（缓存、临时数据）
+- `messsagDB.py`：消息历史记录
+- `message_counter.py`：消息统计
+- `contacts_db.py`：联系人数据库
+- `group_members_db.py`：群成员数据库
+
+**技术选型**：
+- SQLite + aiosqlite（异步）
+- SQLAlchemy ORM
+- Redis（缓存与消息队列）
+
+详细文档见 [database/CLAUDE.md](./database/CLAUDE.md)
+
+---
+
+### 6. 工具模块（utils/）
+
+**核心工具**：
+- `decorators.py`：事件装饰器、定时任务装饰器
+- `event_manager.py`：事件发布订阅、优先级队列
+- `plugin_manager.py`：插件加载、启用、禁用
+- `config_manager.py`：统一配置管理
+- `logger_manager.py`：日志系统初始化
+- `performance_monitor.py`：性能监控（CPU/内存/磁盘）
+- `reply_router.py`：消息路由与分发
+- `notification_service.py`：通知服务（PushPlus）
+
+详细文档见 [utils/CLAUDE.md](./utils/CLAUDE.md)
+
+---
+
 ## 🧪 测试策略
 
 **当前状态**：项目暂无独立的测试目录（未检测到 `tests/` 目录）。
@@ -183,6 +352,18 @@ python main.py
 - 为核心模块（`bot_core.py`, `plugin_manager.py`）添加单元测试
 - 使用 `pytest` + `pytest-asyncio` 测试异步逻辑
 - 插件开发时编写示例测试用例（参考 `ExamplePlugin`）
+
+**测试示例**：
+```bash
+# 安装测试依赖
+pip install pytest pytest-asyncio pytest-cov
+
+# 运行测试
+pytest tests/ -v --cov=.
+
+# 生成覆盖率报告
+pytest --cov-report=html
+```
 
 ---
 
@@ -219,20 +400,44 @@ mypy .
 4. **配置文件**：`config.toml` 必须包含 `[basic] enable = true/false`
 5. **元数据**：设置 `description`, `author`, `version` 属性
 
-**示例**：
-```python
-from utils.plugin_base import PluginBase
-from utils.decorators import on_text_message
+---
 
-class MyPlugin(PluginBase):
-    description = "我的插件"
-    author = "作者名"
-    version = "1.0.0"
+## 🐳 容器化部署
 
-    @on_text_message(priority=80)
-    async def handle_text(self, bot, message: dict):
-        # 处理逻辑
-        pass
+### Docker 镜像
+
+**官方镜像**：`sxkiss/allbot:latest`
+
+**Dockerfile 特性**：
+- 基础镜像：`python:3.11-slim`
+- 内置 Redis Server
+- 预装 FFmpeg（语音处理）
+- 支持 7z/unrar（文件解压）
+- 时区：Asia/Shanghai
+
+### Docker Compose 配置
+
+```yaml
+services:
+  allbot:
+    image: sxkiss/allbot:latest
+    container_name: allbot
+    restart: unless-stopped
+    ports:
+      - "9090:9090"  # 管理后台
+    volumes:
+      - allbot:/app
+      - redis_data:/data/redis  # Redis 持久化
+```
+
+**启动命令**：
+```bash
+docker-compose up -d
+```
+
+**查看日志**：
+```bash
+docker logs -f allbot
 ```
 
 ---
@@ -320,6 +525,12 @@ async def morning_task(self, bot):
     pass
 ```
 
+### Q5: 如何查看系统资源占用？
+访问管理后台 → 系统监控页面，或使用 API：
+```bash
+curl http://localhost:9090/api/system/stats
+```
+
 ---
 
 ## 📦 依赖管理
@@ -338,6 +549,7 @@ async def morning_task(self, bot):
 | aio_pika | >=9.0.0 | RabbitMQ 客户端 |
 | pillow | ~10.4.0 | 图片处理 |
 | pydantic | ~2.10.5 | 数据验证 |
+| websockets | >=10.0 | WebSocket 支持 |
 
 **插件额外依赖**：部分插件有独立的 `requirements.txt`（如 `plugins/APIInterface/requirements.txt`）。
 
@@ -367,4 +579,4 @@ async def morning_task(self, bot):
 
 ---
 
-**构建者提示**：本文档基于 AI 自动扫描生成，如有遗漏或错误，请参考各模块的独立 `CLAUDE.md` 文件或源代码注释。
+**构建者提示**：本文档基于 AI 自动扫描生成，聚焦核心架构。如需了解插件详情，请参考各模块的独立 `CLAUDE.md` 文件或源代码注释。
