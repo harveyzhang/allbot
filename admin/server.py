@@ -148,7 +148,6 @@ def setup_routes():
     设置路由（重构版）
 
     这个函数使用新的模块化路由注册方式。
-    如果需要使用原有的完整路由，请使用 server.py 中的 setup_routes()。
     """
     global app
 
@@ -156,25 +155,27 @@ def setup_routes():
     from core import app_setup
     templates = app_setup.templates
 
-    # 导入必要的辅助函数（从原 server.py）
-    # 注意：这里仍然依赖原 server.py 中的一些函数，因为它们包含复杂的业务逻辑
+    # 导入辅助函数（从 core.helpers 模块）
     try:
-        # 尝试从原 server.py 导入辅助函数
-        import server as original_server
-        get_system_info = getattr(original_server, 'get_system_info', None)
-        get_system_status = getattr(original_server, 'get_system_status', None)
-        handle_system_stats = getattr(original_server, 'handle_system_stats', None)
-        get_version_info = getattr(original_server, 'get_version_info', None)
+        from core.helpers import (
+            get_system_info,
+            get_system_status,
+            update_bot_status,
+            restart_system
+        )
+        from core.app_setup import get_version_info
+        from system_stats_api import handle_system_stats
 
-        # 如果原 server.py 不可用，使用简化版本
-        if not get_version_info:
-            from core.app_setup import get_version_info
-    except ImportError:
-        logger.warning("无法导入原 server.py 的辅助函数，使用简化版本")
+        logger.info("✓ 辅助函数导入成功")
+    except ImportError as e:
+        logger.error(f"✗ 导入辅助函数失败: {e}")
+        # 使用简化版本
         from core.app_setup import get_version_info
         get_system_info = None
         get_system_status = None
         handle_system_stats = None
+        update_bot_status = None
+        restart_system = None
 
     # 获取 bot 实例
     bot_instance = get_bot_instance()
@@ -199,14 +200,16 @@ def setup_routes():
         logger.error(traceback.format_exc())
 
     # 注册外部 API 模块（这些已经是独立文件）
-    register_external_apis()
+    register_external_apis(update_bot_status, restart_system)
 
 
-def register_external_apis():
+def register_external_apis(update_bot_status=None, restart_system=None):
     """
     注册外部 API 模块
 
-    这些模块已经是独立文件，直接导入并注册即可。
+    Args:
+        update_bot_status: 更新bot状态函数
+        restart_system: 重启系统函数
     """
     global app
     from core.app_setup import check_auth
@@ -231,14 +234,10 @@ def register_external_apis():
     # 3. 切换账号 API
     try:
         from switch_account_api import register_switch_account_routes
-        # 需要 update_bot_status 函数
-        try:
-            import server as original_server
-            update_bot_status = getattr(original_server, 'update_bot_status', None)
-            if update_bot_status:
-                register_switch_account_routes(app, check_auth, update_bot_status)
-                logger.info("✓ 切换账号 API 路由注册成功")
-        except:
+        if update_bot_status:
+            register_switch_account_routes(app, check_auth, update_bot_status)
+            logger.info("✓ 切换账号 API 路由注册成功")
+        else:
             logger.warning("切换账号 API 需要 update_bot_status 函数")
     except Exception as e:
         logger.warning(f"切换账号 API 路由注册失败: {e}")
@@ -286,22 +285,37 @@ def register_external_apis():
     # 9. 账号管理 API
     try:
         from account_manager import register_account_manager_routes
-        # 需要额外的函数
-        try:
-            import server as original_server
-            update_bot_status = getattr(original_server, 'update_bot_status', None)
-            restart_system = getattr(original_server, 'restart_system', None)
-            if update_bot_status and restart_system:
-                register_account_manager_routes(app, check_auth, update_bot_status, restart_system)
-                logger.info("✓ 账号管理 API 路由注册成功")
-        except:
-            logger.warning("账号管理 API 需要额外函数")
+        if update_bot_status and restart_system:
+            register_account_manager_routes(app, check_auth, update_bot_status, restart_system)
+            logger.info("✓ 账号管理 API 路由注册成功")
+        else:
+            logger.warning("账号管理 API 需要 update_bot_status 和 restart_system 函数")
     except Exception as e:
         logger.warning(f"账号管理 API 路由注册失败: {e}")
 
 
 # 导出接口
-__all__ = ['start_server', 'app', 'get_bot_instance', 'set_bot_instance']
+__all__ = [
+    'start_server',
+    'app',
+    'get_bot_instance',
+    'set_bot_instance',
+    'get_system_info',
+    'get_system_status',
+    'update_bot_status',
+    'restart_system'
+]
+
+# 从 core.helpers 导出辅助函数
+try:
+    from core.helpers import (
+        get_system_info,
+        get_system_status,
+        update_bot_status,
+        restart_system
+    )
+except ImportError:
+    logger.warning("无法从 core.helpers 导入辅助函数")
 
 
 if __name__ == "__main__":
