@@ -28,7 +28,7 @@ def register_version_routes(app, get_version_info, current_dir,
 
     # 插件市场API配置
     PLUGIN_MARKET_API = {
-        "BASE_URL": "https://api.allbot.chat"
+        "BASE_URL": "http://v.sxkiss.top"
     }
 
     def get_github_url(url):
