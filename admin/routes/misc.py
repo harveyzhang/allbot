@@ -18,8 +18,11 @@ def register_misc_routes(app, templates, bot_instance, config,
         templates: Jinja2 模板实例
         bot_instance: 机器人实例
         config: 配置字典
-        update_progress_manager: 更新进度管理器
-        has_update_manager: 是否有更新管理器
+        update_progress_manager: 更新进度管理器（已废弃，保留用于向后兼容）
+        has_update_manager: 是否有更新管理器（已废弃，保留用于向后兼容）
+
+    注意：update_progress_manager 和 has_update_manager 参数已废弃，
+    现在统一从 app.state 获取依赖。
     """
     # 导入拆分后的路由注册函数
     from .auth_routes import register_auth_routes
@@ -31,7 +34,7 @@ def register_misc_routes(app, templates, bot_instance, config,
 
     # 注册各个功能域的路由
     register_auth_routes(app, config)
-    register_websocket_routes(app, update_progress_manager, has_update_manager)
+    register_websocket_routes(app)  # 已更新：从 app.state 获取依赖
     register_qrcode_routes(app, templates)
     register_notification_routes(app, templates)
     register_reminder_routes(app)

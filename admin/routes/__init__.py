@@ -67,8 +67,8 @@ def register_refactored_routes(app, templates, bot_instance, get_version_info,
     if get_version_info and current_dir:
         try:
             from .version_routes import register_version_routes
-            # 获取更新管理器
-            update_progress_manager = getattr(app.state, 'update_progress_manager', None)
+            # 从 app.state 获取更新管理器（已在 init_app_state 中注入）
+            update_progress_manager = app.state.update_progress_manager
             has_update_manager = update_progress_manager is not None
 
             register_version_routes(
@@ -124,7 +124,8 @@ def register_refactored_routes(app, templates, bot_instance, get_version_info,
     if current_dir:
         try:
             from .plugins import register_plugins_routes
-            plugin_manager = getattr(app.state, 'plugin_manager', None)
+            # 从 app.state 获取插件管理器（已在 init_app_state 中注入）
+            plugin_manager = app.state.plugin_manager
             register_plugins_routes(app, current_dir, plugin_manager)
             logger.info("✓ 插件管理路由注册成功")
         except Exception as e:
@@ -139,7 +140,8 @@ def register_refactored_routes(app, templates, bot_instance, get_version_info,
         from .misc import register_misc_routes
         # 从 core.app_setup 导入正确的 config
         from core.app_setup import config
-        update_progress_manager = getattr(app.state, 'update_progress_manager', None)
+        # 从 app.state 获取更新管理器（已在 init_app_state 中注入）
+        update_progress_manager = app.state.update_progress_manager
         has_update_manager = update_progress_manager is not None
 
         register_misc_routes(

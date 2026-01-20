@@ -6,6 +6,13 @@
 
 ## 📋 变更记录
 
+### 2026-01-20 - 🔧 统一依赖注入机制
+- **新增 `init_app_state()` 函数**：统一管理所有全局依赖注入
+- **修复系统更新功能**：解决"更新进度管理器不可用"错误
+- **修复导入路径**：修正 `update_with_progress` 模块导入路径
+- **优化依赖管理**：所有依赖通过 `app.state` 统一获取，符合 SOLID 原则
+- **简化路由注册**：移除冗余参数传递，提升代码可维护性
+
 ### 2026-01-19 14:25:00 - 🎉 重大重构完成
 - **完成 server.py 模块化重构**：从 9,153 行巨型文件拆分为 13 个独立模块
 - **架构升级**：采用 SOLID 原则，基于 APIRouter 的功能域垂直拆分
@@ -33,6 +40,79 @@ Web 管理后台是 AllBot 的**可视化控制中心**，基于 FastAPI + Boots
 - **AI 平台管理**：模型平台密钥配置
 - **系统设置**：全局配置项编辑与保存
 - **插件市场**：浏览与安装插件市场资源
+
+---
+
+## 🔧 依赖注入机制
+
+### 设计原则
+
+管理后台采用**统一依赖注入机制**，所有全局依赖通过 `app.state` 管理，符合 SOLID 的依赖倒置原则。
+
+### 核心函数：`init_app_state()`
+
+**位置**：[admin/core/app_setup.py:346](core/app_setup.py#L346)
+
+**职责**：在应用启动时注入所有全局依赖到 `app.state`
+
+**注入的依赖**：
+
+| 依赖名称 | 类型 | 说明 |
+|---------|------|------|
+| `app.state.templates` | `Jinja2Templates` | 模板引擎实例 |
+| `app.state.update_progress_manager` | `UpdateProgressManager` | 系统更新进度管理器 |
+| `app.state.plugin_manager` | `PluginManager` | 插件管理器实例 |
+| `app.state.get_bot_status` | `Callable` | Bot 状态获取函数 |
+| `app.state.check_auth` | `Callable` | 认证检查函数 |
+
+**调用时机**：
+
+```python
+# admin/core/app_setup.py:341
+def create_app() -> FastAPI:
+    app = FastAPI(...)
+    # ... 其他初始化
+
+    # 初始化 app.state 依赖注入
+    init_app_state(app)
+
+    return app
+```
+
+### 使用方式
+
+**在路由模块中获取依赖**：
+
+```python
+# 方式 1：直接访问（推荐）
+def register_version_routes(app, ...):
+    update_progress_manager = app.state.update_progress_manager
+    if update_progress_manager is None:
+        logger.error("更新进度管理器不可用")
+        return
+
+# 方式 2：使用 getattr（兼容性更好）
+def register_websocket_routes(app):
+    update_progress_manager = getattr(app.state, 'update_progress_manager', None)
+    if update_progress_manager is None:
+        # 处理依赖缺失情况
+        pass
+```
+
+### 优势
+
+1. **统一管理**：所有依赖集中在 `app.state`，便于维护
+2. **解耦合**：路由模块不直接导入全局变量，降低耦合度
+3. **可测试性**：便于在测试中 mock 依赖
+4. **错误处理**：依赖缺失时有明确的错误提示
+5. **符合 SOLID**：依赖倒置原则，依赖抽象而非具体实现
+
+### 相关文件
+
+- [admin/core/app_setup.py](core/app_setup.py) - 依赖注入核心逻辑
+- [admin/routes/__init__.py](routes/__init__.py) - 路由注册时获取依赖
+- [admin/routes/version_routes.py](routes/version_routes.py) - 版本更新路由使用示例
+- [admin/routes/websocket_routes.py](routes/websocket_routes.py) - WebSocket 路由使用示例
 
 ---
 

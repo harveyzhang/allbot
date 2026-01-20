@@ -9,14 +9,12 @@ from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
 
 
-def register_websocket_routes(app, update_progress_manager=None, has_update_manager=False):
+def register_websocket_routes(app):
     """
     注册 WebSocket 相关路由
 
     Args:
         app: FastAPI 应用实例
-        update_progress_manager: 更新进度管理器
-        has_update_manager: 是否有更新管理器
     """
     from core.app_setup import connect_websocket, disconnect_websocket
 
@@ -36,7 +34,10 @@ def register_websocket_routes(app, update_progress_manager=None, has_update_mana
         """WebSocket 端点 - 实时推送版本更新进度"""
         await websocket.accept()
 
-        if not has_update_manager:
+        # 从 app.state 获取更新管理器（已在 init_app_state 中注入）
+        update_progress_manager = getattr(app.state, 'update_progress_manager', None)
+
+        if update_progress_manager is None:
             await websocket.send_text(json.dumps({
                 "error": "更新进度管理器不可用"
             }))

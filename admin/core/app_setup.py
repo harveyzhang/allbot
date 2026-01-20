@@ -337,7 +337,58 @@ def create_app() -> FastAPI:
     init_auth_dependencies(check_auth)
     logger.info("认证依赖注入模块已初始化")
 
+    # 初始化 app.state 依赖注入
+    init_app_state(app)
+
     return app
+
+
+def init_app_state(app: FastAPI):
+    """
+    初始化 app.state，注入所有全局依赖
+
+    统一依赖注入机制，所有全局实例通过 app.state 管理，
+    符合 SOLID 的依赖倒置原则，提升代码可维护性。
+
+    Args:
+        app: FastAPI 应用实例
+    """
+    logger.info("开始初始化 app.state 依赖注入...")
+
+    # 1. 注入模板引擎
+    global templates
+    if templates is not None:
+        app.state.templates = templates
+        logger.info("✓ 已注入 templates")
+    else:
+        logger.warning("✗ templates 未初始化")
+
+    # 2. 注入更新进度管理器
+    try:
+        from admin.update_manager import update_progress_manager
+        app.state.update_progress_manager = update_progress_manager
+        logger.info("✓ 已注入 update_progress_manager")
+    except ImportError as e:
+        logger.error(f"✗ 导入 update_progress_manager 失败: {e}")
+        app.state.update_progress_manager = None
+
+    # 3. 注入插件管理器
+    try:
+        from utils.plugin_manager import plugin_manager
+        app.state.plugin_manager = plugin_manager
+        logger.info("✓ 已注入 plugin_manager")
+    except ImportError as e:
+        logger.warning(f"插件管理器未找到（可能尚未初始化）: {e}")
+        app.state.plugin_manager = None
+
+    # 4. 注入 bot 状态获取函数
+    app.state.get_bot_status = lambda: {
+        "is_login": bot_instance.is_login if bot_instance else False,
+        "wxid": getattr(bot_instance, "wxid", "") if bot_instance else ""
+    }
+    logger.info("✓ 已注入 get_bot_status")
+
+    logger.info("app.state 依赖注入完成")
 
 
 def init_app():

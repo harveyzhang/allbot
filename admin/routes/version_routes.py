@@ -157,7 +157,7 @@ def register_version_routes(app, get_version_info, current_dir,
             # 启动带进度的更新流程
             async def run_update():
                 try:
-                    from update_with_progress import update_with_progress
+                    from admin.update_with_progress import update_with_progress
                     await update_with_progress(
                         version_info,
                         update_progress_manager,
