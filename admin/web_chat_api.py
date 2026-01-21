@@ -631,6 +631,77 @@ async def _broadcast_message(message: Dict[str, Any]):
         _websocket_connections.remove(ws)
 
 
+# 后台消费循环任务
+_consume_task = None
+_consume_task_running = False
+
+
+async def _consume_replies_loop():
+    """后台任务：持续从 Redis 队列消费回复消息"""
+    global _consume_task_running
+    _consume_task_running = True
+
+    logger.info("🚀 [WebChat] 后台消费循环已启动")
+
+    while _consume_task_running:
+        try:
+            adapter = _get_web_adapter()
+            if not adapter or not getattr(adapter, "enabled", False):
+                await asyncio.sleep(2)
+                continue
+
+            # 从队列获取回复消息
+            try:
+                replies = adapter.pop_replies(limit=10)
+            except Exception as e:
+                logger.error(f"[WebChat] 从队列获取消息失败: {e}")
+                await asyncio.sleep(1)
+                continue
+
+            if not replies:
+                # 队列为空，短暂休眠
+                await asyncio.sleep(0.5)
+                continue
+
+            logger.info(f"📨 [WebChat] 后台任务获取到 {len(replies)} 条回复消息")
+
+            # 处理每条回复消息
+            for reply in replies:
+                wxid = reply.get("wxid")
+                if not wxid:
+                    logger.warning(f"⚠️  回复消息缺少 wxid 字段: {reply}")
+                    continue
+
+                session_id = _sender_index.get(wxid)
+                if not session_id:
+                    # 尝试使用固定会话 ID
+                    session_id = _FIXED_SESSION_ID
+
+                session = web_sessions.get(session_id)
+                if not session:
+                    logger.error(f"❌ 未找到会话 session_id={session_id}")
+                    continue
+
+                # 规范化消息并添加到会话
+                normalized_msg = _normalize_reply_message(reply)
+                session["messages"].append(normalized_msg)
+
+                logger.success(f"✅ [WebChat] 实时添加回复消息到会话 {session_id}: {normalized_msg.get('content', '')[:50]}")
+
+                # 通过 WebSocket 实时推送
+                await _broadcast_message({
+                    "type": "new_message",
+                    "session_id": session_id,
+                    "message": normalized_msg
+                })
+
+        except Exception as e:
+            logger.error(f"[WebChat] 后台消费循环异常: {e}")
+            await asyncio.sleep(1)
+
+    logger.info("🛑 [WebChat] 后台消费循环已停止")
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket 端点 - 实时推送消息"""
@@ -667,7 +738,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def register_web_chat_routes(app, check_auth):
     """注册Web聊天路由"""
-    global _check_auth
+    global _check_auth, _consume_task
     _check_auth = check_auth
     app.include_router(router)
 
@@ -681,3 +752,9 @@ def register_web_chat_routes(app, check_auth):
         ingested = _ingest_pending_replies(adapter, limit=100)
         if ingested > 0:
             logger.success(f"✅ 已处理 {ingested} 条历史回复消息")
+
+        # 启动后台消费循环任务
+        _consume_task = asyncio.create_task(_consume_replies_loop())
+        logger.success("🚀 [WebChat] 后台消费循环任务已启动，将实时监听回复队列")
+    else:
+        logger.warning("⚠️  [WebChat] Web适配器未启用，后台消费循环未启动")
