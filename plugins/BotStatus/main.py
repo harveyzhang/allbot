@@ -28,34 +28,54 @@ class BotStatus(PluginBase):
         self.version = main_config["version"]
         self.status_message = config["status-message"]
 
-    @on_text_message
+    @on_text_message(priority=60)
     async def handle_text(self, bot: WechatAPIClient, message: dict):
-        if not self.enable:
-            return
+        from loguru import logger
+        logger.critical(f"[BotStatus] 收到消息调用: {message.get('Content', '')}")
 
-        content = str(message["Content"]).strip()
+        if not self.enable:
+            logger.debug("[BotStatus] 插件未启用")
+            return True
+
+        content = str(message.get("Content", "")).strip()
         command = content.split(" ")
 
-        if not len(command) or command[0] not in self.command:
-            return
+        logger.info(f"[BotStatus] 解析命令: {command}, 配置命令: {self.command}")
 
+        if not len(command) or command[0] not in self.command:
+            logger.debug(f"[BotStatus] 命令不匹配，继续执行")
+            return True
+
+        logger.info(f"[BotStatus] 命令匹配，准备发送状态消息")
         out_message = (f"{self.status_message}\n"
                        f"当前版本: {self.version}\n"
                        "项目地址：https://github.com/sxkiss/allbot\n")
         await bot.send_text_message(message.get("FromWxid"), out_message)
+        logger.info(f"[BotStatus] 状态消息已发送，阻止后续插件")
+        return False
 
-    @on_at_message
+    @on_at_message(priority=60)
     async def handle_at(self, bot: WechatAPIClient, message: dict):
-        if not self.enable:
-            return
+        from loguru import logger
+        logger.critical(f"[BotStatus] 收到@消息调用: {message.get('Content', '')}")
 
-        content = str(message["Content"]).strip()
+        if not self.enable:
+            logger.debug("[BotStatus] 插件未启用")
+            return True
+
+        content = str(message.get("Content", "")).strip()
         command = re.split(r'[\s\u2005]+', content)
 
-        if len(command) < 2 or command[1] not in self.command:
-            return
+        logger.info(f"[BotStatus] 解析@命令: {command}, 配置命令: {self.command}")
 
+        if len(command) < 2 or command[1] not in self.command:
+            logger.debug(f"[BotStatus] @命令不匹配，继续执行")
+            return True
+
+        logger.info(f"[BotStatus] @命令匹配，准备发送状态消息")
         out_message = (f"{self.status_message}\n"
                        f"当前版本: {self.version}\n"
                        "项目地址：https://github.com/sxkiss/allbot\n")
         await bot.send_text_message(message.get("FromWxid"), out_message)
+        logger.info(f"[BotStatus] @状态消息已发送，阻止后续插件")
+        return False
