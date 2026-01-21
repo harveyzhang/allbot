@@ -15,6 +15,9 @@ from typing import Dict, Optional, Tuple
 from loguru import logger
 import requests
 
+# 导入 GitHub 反代工具
+from utils.github_proxy import get_github_url
+
 
 class PluginInstaller:
     """插件安装服务类"""
@@ -55,7 +58,7 @@ class PluginInstaller:
 
     def _download_from_github(self, github_url: str) -> bytes:
         """
-        从 GitHub 下载插件 ZIP 文件
+        从 GitHub 下载插件 ZIP 文件（支持反代加速）
 
         Args:
             github_url: GitHub 仓库 URL（已标准化，格式：owner/repo）
@@ -67,24 +70,28 @@ class PluginInstaller:
             Exception: 下载失败时抛出异常
         """
         # 尝试 main 分支
-        zip_url = f"https://github.com/{github_url}/archive/refs/heads/main.zip"
+        original_url = f"https://github.com/{github_url}/archive/refs/heads/main.zip"
+        zip_url = get_github_url(original_url)  # 使用反代
         logger.info(f"正在从 {zip_url} 下载插件...")
 
         try:
             response = requests.get(zip_url, timeout=self.DOWNLOAD_TIMEOUT)
             if response.status_code == 200:
+                logger.info(f"从 main 分支下载成功，文件大小: {len(response.content)} 字节")
                 return response.content
         except Exception as e:
             logger.warning(f"从 main 分支下载失败: {e}")
 
         # 尝试 master 分支
-        master_url = f"https://github.com/{github_url}/archive/refs/heads/master.zip"
+        original_master_url = f"https://github.com/{github_url}/archive/refs/heads/master.zip"
+        master_url = get_github_url(original_master_url)  # 使用反代
         logger.info(f"尝试从 master 分支下载: {master_url}")
 
         response = requests.get(master_url, timeout=self.DOWNLOAD_TIMEOUT)
         if response.status_code != 200:
             raise Exception(f"下载插件失败: HTTP {response.status_code}")
 
+        logger.info(f"从 master 分支下载成功，文件大小: {len(response.content)} 字节")
         return response.content
 
     def _extract_zip(self, zip_content: bytes, temp_dir: str) -> str:

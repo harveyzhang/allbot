@@ -547,8 +547,8 @@ def register_plugins_routes(app, current_dir, plugin_manager=None):
     async def api_get_plugin_categories(request: Request, username: str = Depends(require_auth)):
         # 检查认证状态
         try:
-            # 实例化httpx客户端
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            # 使用 aiohttp 客户端（与文件其他部分保持一致）
+            async with aiohttp.ClientSession() as session:
                 # 构建请求头
                 headers = {
                     "X-Client-ID": get_client_id(),
@@ -558,22 +558,22 @@ def register_plugins_routes(app, current_dir, plugin_manager=None):
 
                 try:
                     # 请求远程API获取分类列表
-                    response = await client.get(
+                    async with session.get(
                         f"{PLUGIN_MARKET_API['BASE_URL']}/categories",
                         headers=headers,
-                        follow_redirects=True
-                    )
+                        timeout=10,
+                        allow_redirects=True
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            logger.info(f"成功获取插件分类列表，共 {len(data.get('categories', []))} 个分类")
+                            return data
+                        else:
+                            logger.warning(f"获取分类列表失败，状态码: {response.status}")
+                            # 返回默认分类
+                            return await get_default_categories()
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        logger.info(f"成功获取插件分类列表，共 {len(data.get('categories', []))} 个分类")
-                        return data
-                    else:
-                        logger.warning(f"获取分类列表失败，状态码: {response.status_code}")
-                        # 返回默认分类
-                        return await get_default_categories()
-
-                except httpx.RequestError as e:
+                except aiohttp.ClientError as e:
                     logger.error(f"请求分类列表失败: {str(e)}")
                     # 返回默认分类
                     return await get_default_categories()
@@ -952,7 +952,54 @@ def register_plugins_routes(app, current_dir, plugin_manager=None):
         "LIST": "/plugins/?status=approved",  # 添加尾部斜杠，避免重定向
         "DETAIL": "/plugins/",
         "INSTALL": "/plugins/install/",
+        "CACHE_DIR": os.path.join(current_dir, "cache"),
     }
+
+    # 辅助函数：获取客户端ID
+    def get_client_id():
+        """获取或生成唯一的客户端ID"""
+        cache_dir = PLUGIN_MARKET_API["CACHE_DIR"]
+        os.makedirs(cache_dir, exist_ok=True)
+        client_id_file = os.path.join(cache_dir, "client_id")
+
+        # 如果文件存在，读取ID
+        if os.path.exists(client_id_file):
+            try:
+                with open(client_id_file, "r") as f:
+                    return f.read().strip()
+            except Exception as e:
+                logger.warning(f"读取客户端ID失败: {e}")
+
+        # 生成新ID
+        import uuid
+        client_id = str(uuid.uuid4())
+
+        # 保存到文件
+        try:
+            with open(client_id_file, "w") as f:
+                f.write(client_id)
+        except Exception as e:
+            logger.warning(f"保存客户端ID失败: {e}")
+
+        return client_id
+
+    # 辅助函数：获取Bot版本
+    def get_bot_version():
+        """获取Bot版本信息"""
+        try:
+            # 尝试从配置文件读取版本
+            config_file = os.path.join(os.path.dirname(current_dir), "main_config.toml")
+            if os.path.exists(config_file):
+                try:
+                    import tomllib
+                except ImportError:
+                    import tomli as tomllib
+                with open(config_file, "rb") as f:
+                    config = tomllib.load(f)
+                    return config.get("version", "1.0.0")
+        except Exception as e:
+            logger.debug(f"读取版本信息失败: {e}")
+        return "1.0.0"
 
     # API: 安装插件
     @app.post("/api/plugins/install", response_class=JSONResponse)
