@@ -145,7 +145,6 @@ async def update_framework() -> Dict[str, str]:
             "dow/channel",
             "dow/lib",
             "adapter",
-            "plugins",
             "version.json",
             "bot_core.py",
             "main_config.toml.example",
