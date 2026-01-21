@@ -308,6 +308,7 @@ class ReplyDispatcher:
                     continue
 
                 queue_name, payload_str = result
+                logger.info(f"[ReplyDispatcher] 从队列 {queue_name} 获取到消息")
 
                 # 解析 payload
                 try:
@@ -322,6 +323,8 @@ class ReplyDispatcher:
                     logger.warning(f"payload 缺少 platform 字段: {payload_str}")
                     continue
 
+                logger.info(f"[ReplyDispatcher] 消息平台: {platform}, 目标wxid: {payload.get('wxid')}")
+
                 # 查找目标队列
                 target_queue = self.routing_rules.get(platform)
 
@@ -332,7 +335,7 @@ class ReplyDispatcher:
 
                 # 分发消息到目标队列
                 await self.redis.rpush(target_queue, payload_str)
-                logger.debug(f"分发消息: {platform} -> {target_queue}")
+                logger.info(f"[ReplyDispatcher] 消息已分发: {platform} -> {target_queue}")
 
             except asyncio.CancelledError:
                 logger.info("调度器收到取消信号，准备退出...")
