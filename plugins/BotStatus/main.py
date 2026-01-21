@@ -47,11 +47,14 @@ class BotStatus(PluginBase):
             return True
 
         logger.info(f"[BotStatus] 命令匹配，准备发送状态消息")
+        target_wxid = message.get("FromWxid")
+        logger.critical(f"[BotStatus] 🎯 发送目标 FromWxid: {target_wxid}")
+        logger.critical(f"[BotStatus] 🎯 完整消息对象: {message}")
         out_message = (f"{self.status_message}\n"
                        f"当前版本: {self.version}\n"
                        "项目地址：https://github.com/sxkiss/allbot\n")
-        await bot.send_text_message(message.get("FromWxid"), out_message)
-        logger.info(f"[BotStatus] 状态消息已发送，阻止后续插件")
+        await bot.send_text_message(target_wxid, out_message)
+        logger.critical(f"[BotStatus] ✅ 状态消息已发送到 {target_wxid}，阻止后续插件")
         return False
 
     @on_at_message(priority=60)

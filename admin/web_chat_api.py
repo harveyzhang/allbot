@@ -35,12 +35,15 @@ _FIXED_SESSION_ID = "webchat"
 def _ensure_session(session_id: str) -> Dict[str, Any]:
     session_id = _FIXED_SESSION_ID
     if session_id not in web_sessions:
+        sender_wxid = f"web-{session_id}"
         web_sessions[session_id] = {
             "created_at": int(time.time()),
             "messages": [],
-            "sender_wxid": f"web-{session_id}",
+            "sender_wxid": sender_wxid,
         }
-        _sender_index[web_sessions[session_id]["sender_wxid"]] = session_id
+        _sender_index[sender_wxid] = session_id
+        logger.info(f"🔧 [WebChat] 创建会话: session_id={session_id}, sender_wxid={sender_wxid}")
+        logger.info(f"🔧 [WebChat] _sender_index 已更新: {_sender_index}")
     return web_sessions[session_id]
 
 
@@ -260,21 +263,22 @@ def _ingest_pending_replies(adapter, limit: int = 50) -> int:
     try:
         replies = adapter.pop_replies(limit=limit)
         if replies:
-            logger.info(f"📨 从回复队列获取到 {len(replies)} 条消息")
+            logger.critical(f"📨 [WebChat] 从回复队列获取到 {len(replies)} 条消息")
     except Exception as e:
         logger.error(f"消费Web回复队列失败: {e}")
         return 0
 
     if not replies:
+        logger.debug("📭 [WebChat] 回复队列为空")
         return 0
 
-    logger.info(f"🔍 当前 _sender_index: {_sender_index}")
-    logger.info(f"🔍 当前 web_sessions: {list(web_sessions.keys())}")
+    logger.critical(f"🔍 [WebChat] 当前 _sender_index: {_sender_index}")
+    logger.critical(f"🔍 [WebChat] 当前 web_sessions: {list(web_sessions.keys())}")
 
     appended = 0
     for reply in replies:
         wxid = reply.get("wxid")
-        logger.info(f"🔍 处理回复消息: wxid={wxid}, reply={reply}")
+        logger.critical(f"🔍 [WebChat] 处理回复消息: wxid={wxid}, reply={reply}")
 
         if not wxid:
             logger.warning(f"⚠️  回复消息缺少 wxid 字段: {reply}")
