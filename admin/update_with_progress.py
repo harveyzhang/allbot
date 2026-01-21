@@ -117,8 +117,51 @@ async def update_with_progress(version_info: dict, update_progress_manager, get_
                 logger.info(f"已更新: {item}")
         await asyncio.sleep(0.5)
 
-        # 阶段7: 更新版本信息 (87.5%)
-        await update_progress_manager.update_progress(87, "更新版本信息", "正在更新版本配置...")
+        # 阶段7: 设置文件权限 (80%)
+        await update_progress_manager.update_progress(80, "设置权限", "正在设置文件执行权限...")
+
+        # 需要设置执行权限的文件模式
+        executable_patterns = [
+            "entrypoint.sh",           # Docker 启动脚本
+            "*.sh",                    # 所有 shell 脚本
+            "WechatAPI/Client/*/XYWechatPad",  # 微信协议二进制文件
+        ]
+
+        # 设置 entrypoint.sh 权限（最关键）
+        entrypoint_path = os.path.join(root_dir, "entrypoint.sh")
+        if os.path.exists(entrypoint_path):
+            os.chmod(entrypoint_path, 0o755)
+            logger.info(f"已设置执行权限: entrypoint.sh")
+
+        # 设置所有 .sh 文件权限
+        for root, dirs, files in os.walk(root_dir):
+            for file in files:
+                if file.endswith('.sh'):
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.chmod(file_path, 0o755)
+                        logger.info(f"已设置执行权限: {os.path.relpath(file_path, root_dir)}")
+                    except Exception as e:
+                        logger.warning(f"设置权限失败 {file_path}: {e}")
+
+        # 设置 XYWechatPad 二进制文件权限
+        wechat_api_dir = os.path.join(root_dir, "WechatAPI", "Client")
+        if os.path.exists(wechat_api_dir):
+            for protocol_dir in os.listdir(wechat_api_dir):
+                protocol_path = os.path.join(wechat_api_dir, protocol_dir)
+                if os.path.isdir(protocol_path):
+                    xywechat_path = os.path.join(protocol_path, "XYWechatPad")
+                    if os.path.exists(xywechat_path):
+                        try:
+                            os.chmod(xywechat_path, 0o755)
+                            logger.info(f"已设置执行权限: WechatAPI/Client/{protocol_dir}/XYWechatPad")
+                        except Exception as e:
+                            logger.warning(f"设置权限失败 {xywechat_path}: {e}")
+
+        await asyncio.sleep(0.5)
+
+        # 阶段8: 更新版本信息 (90%)
+        await update_progress_manager.update_progress(90, "更新版本信息", "正在更新版本配置...")
         version_info["version"] = version_info["latest_version"]
         version_info["update_available"] = False
         version_info["force_update"] = False
@@ -129,7 +172,7 @@ async def update_with_progress(version_info: dict, update_progress_manager, get_
             json.dump(version_info, f, ensure_ascii=False, indent=2)
         await asyncio.sleep(0.5)
 
-        # 阶段8: 清理临时文件 (95%)
+        # 阶段9: 清理临时文件 (95%)
         await update_progress_manager.update_progress(95, "清理临时文件", "正在清理临时文件...")
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)

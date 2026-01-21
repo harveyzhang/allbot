@@ -22,7 +22,7 @@ class UpdateProgressManager:
             "stage": "",
             "message": "",
             "error": None,
-            "total_stages": 8  # 总共8个阶段
+            "total_stages": 9  # 总共9个阶段（新增权限设置阶段）
         }
         self._lock = asyncio.Lock()
 
