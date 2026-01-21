@@ -52,44 +52,11 @@ async def restart_system():
         logger.info(f"是否在Docker环境中: {in_docker}")
 
         if in_docker:
-            # Docker环境下的重启策略
-            logger.info("在Docker环境中运行，使用Docker特定的重启方法")
-
-            # 方法1: 尝试向自己发送SIGTERM信号，让Docker重启策略生效
-            try:
-                import signal
-                logger.info("尝试向PID 1发送SIGTERM信号")
-                os.kill(1, signal.SIGTERM)
-                # 等待信号生效
-                await asyncio.sleep(5)
-            except Exception as e:
-                logger.error(f"发送SIGTERM失败: {e}")
-
-            # 方法2: 尝试使用docker命令重启当前容器
-            try:
-                # 获取当前容器ID
-                container_id = subprocess.check_output(["cat", "/proc/self/cgroup"]).decode('utf-8')
-                if 'docker' in container_id:
-                    # 提取容器ID
-                    for line in container_id.splitlines():
-                        if 'docker' in line:
-                            parts = line.split('/')
-                            if len(parts) > 2:
-                                container_id = parts[-1]
-                                logger.info(f"检测到容器ID: {container_id}")
-                                # 尝试使用docker命令重启
-                                cmd = f"docker restart {container_id}"
-                                logger.info(f"执行命令: {cmd}")
-                                # 使用一个简单的Shell脚本来执行docker命令
-                                restart_cmd = f"sleep 2 && {cmd} &"
-                                subprocess.Popen(["sh", "-c", restart_cmd])
-                                break
-            except Exception as e:
-                logger.error(f"使用docker命令重启失败: {e}")
-
-            # 方法3: 最后的方法，直接退出进程，依靠Docker的自动重启策略
-            logger.info("使用最后的方法: 直接退出进程")
-            os._exit(1)  # 使用非零退出码，通常会触发Docker的重启策略
+            # Docker环境下的重启策略：直接退出进程，触发Docker重启策略
+            logger.info("在Docker环境中运行，直接退出进程触发重启")
+            logger.info("Docker Compose配置的restart策略将自动重启容器")
+            # 使用非零退出码，触发Docker的restart: unless-stopped策略
+            os._exit(1)
         else:
             # 非Docker环境下的重启策略
             # 获取当前脚本的路径和执行命令

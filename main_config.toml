@@ -77,7 +77,7 @@ robot-wxids = [
 # 可选值: "", "https://ghfast.top/", "https://gh-proxy.com/", "https://mirror.ghproxy.com/"
 # 空字符串表示直连不使用加速
 # 注意: 如果使用加速服务，请确保以"/"结尾
-github-proxy = ""
+github-proxy = "https://git.yylx.win"
 
 # SQLite数据库地址，一般无需修改
 XYBotDB-url = "sqlite:///database/xybot.db"
