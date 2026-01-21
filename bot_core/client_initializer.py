@@ -82,6 +82,8 @@ class ClientInitializer:
                 redis_password=api_config.redis_password or None,
                 main_queue="allbot_reply",
             )
-            # 在后台任务中启动调度器
-            asyncio.create_task(reply_dispatcher.start())
+            # 在后台任务中启动调度器，保存任务引用防止被垃圾回收
+            dispatcher_task = asyncio.create_task(reply_dispatcher.start())
+            # 保存任务引用到 bot 实例，防止被垃圾回收
+            bot._dispatcher_task = dispatcher_task
             logger.success("🚦 ReplyDispatcher 回复调度器已启动，开始监听主队列并分发消息")
