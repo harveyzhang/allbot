@@ -15,7 +15,7 @@
 
 ## 2. 入站消息格式（推荐）
 
-入站消息建议遵循以下字段，以保证与 `utils/xybot.py` 兼容：
+入站消息建议遵循以下字段，以保证与 `utils/xybot_legacy.py` 等通用处理逻辑兼容：
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -31,6 +31,28 @@
 | `SenderWxid` | string | 视情况 | 群聊消息时的真实发送者 |
 
 系统也兼容 `msgId`、`category`、`content`、`sender` 等字段，但推荐使用标准字段以减少兼容问题。
+
+### 2.1 媒体消息与图片引用（重要）
+
+为了让「引用图片」等高级能力跨平台复用，适配器在处理图片等媒体消息时，必须遵守以下约定：
+
+- 入站图片消息（`MsgType == 3`）在写入 Redis 前，适配器应尽量填充：
+  - `ResourcePath`: 图片在本地磁盘上的路径（适配器自己的缓存目录）
+  - `ImageBase64`（可选）: 图片的 base64 字符串表示
+  - `ImageMD5`（可选）: 图片二进制内容的 MD5 值
+- 框架通用层会基于上述字段：
+  - 计算/校验 `ImageMD5`
+  - 将文件复制到统一的 `files/` 目录，生成 `files/<md5>.<ext>` 与 `files/<md5>`
+  - 在消息对象中补全 `ImagePath` 字段
+- 上层插件（如 Dify）只依赖：
+  - `ImageMD5`
+  - `files` 目录中的实际图片文件（通过 `find_image_by_md5` 查找）
+
+适配器不需要关心 Dify 或其他插件的实现细节，只需保证：
+
+1. 入站图片消息尽量提供可下载的 URL / 文件路径
+2. 下载完成后在消息中填充 `ResourcePath` / `ImageBase64` 等字段
+3. 其他字段（如平台原始 metadata）可以放在 `Extra.<platform>.media` 中，供调试或未来扩展使用
 
 ## 3. 适配器目录结构
 
@@ -83,6 +105,7 @@ queue = "allbot"
 2. 实现适配器类，负责：
    - 入站消息写入 `allbot`
    - 出站消息消费 `replyQueue`
+   - 入站媒体消息（图片/视频/文件）下载与本地缓存，填充 `ResourcePath` /（可选）`ImageBase64` /（可选）`ImageMD5`
 3. 在 `config.toml` 中设置 `enabled = true`
 4. 重启服务加载适配器
 

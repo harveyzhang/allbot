@@ -66,8 +66,19 @@ class = "QQAdapter"               # 适配器类名
 
 [qq]
 host = "127.0.0.1"
-port = 8080
-access_token = "your_token_here"
+port = 9011                       # NapCat OneBot WebSocket 端口
+enable = true
+platform = "qq"
+botWxid = "qq-bot"
+
+[qq.redis]
+host = "127.0.0.1"
+port = 6379
+db = 0
+queue = "allbot"
+
+# 媒体缓存目录（可选，默认 admin/static/temp/qq）
+mediaCacheDir = "admin/static/temp/qq"
 ```
 
 ---
@@ -117,17 +128,39 @@ class AdapterBase:
 
 ```python
 {
-    "platform": "qq",            # 平台标识：qq, telegram, web, windows
-    "wxid": "user_id",           # 发送者 ID（统一使用 wxid 字段）
-    "roomid": "group_id",        # 群组 ID（私聊时为空）
-    "content": "消息内容",
-    "type": 1,                   # 消息类型（1=文本, 3=图片, ...）
-    "timestamp": 1234567890,
-    "isSelf": False,             # 是否为自己发送
-    "nickname": "发送者昵称",
-    "extra": {}                  # 平台特有字段
+    "Platform": "qq",                 # 平台标识：qq, tg, web, win 等
+    "ChannelId": "qq-123456@chatroom",# 会话 ID（群/私聊统一标识）
+    "UserId": "qq-user-7890",         # 内部用户标识
+    "MsgId": "qq_1700000000000",      # 消息唯一标识
+    "MsgType": 1,                     # 消息类型（1=文本, 3=图片, 43=视频, 49=文件/卡片）
+    "Timestamp": 1234567890,
+    "Content": {"string": "消息内容"},
+    "FromWxid": "qq-123456@chatroom",
+    "ToWxid": "qq-bot",
+    "FromUserName": {"string": "qq-123456@chatroom"},
+    "ToUserName": {"string": "qq-bot"},
+    "SenderWxid": "qq-user-7890",
+    "IsGroup": True,
+    "MsgSource": "<msgsource></msgsource>",
+    "Extra": {
+        "qq": {
+            "raw": {}                 # 平台原始 payload（可选）
+        },
+        "media": {
+            "url": "...",             # 图片/视频 URL（可选）
+            "md5": "...",             # 适配器计算的媒体 MD5（可选）
+        }
+    }
 }
 ```
+
+对于图片消息（`MsgType == 3`），适配器应尽量补充以下字段，以支持统一的图片引用能力：
+
+- `ResourcePath`: 媒体文件在本地磁盘的路径（适配器缓存目录）
+- `ImageBase64`（可选）: 媒体内容的 base64 字符串
+- `ImageMD5`（可选）: 媒体内容的 MD5 值
+
+通用层会基于这些字段将文件复制到 `files/` 目录，并建立 `MD5 -> 文件` 的映射，供插件（例如 Dify）通过 `ImageMD5` 查找图片并进行引用分析。
 
 ---
 
