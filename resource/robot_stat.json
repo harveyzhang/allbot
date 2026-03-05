@@ -1,5 +1,14 @@
 {
   "wxid": "",
   "device_name": "",
-  "device_id": "ced97b2ecddde20507a72f5efe57c31d"
+  "device_id": "",
+  "auth_key": "",
+  "auth_keys": [],
+  "token_key": "",
+  "poll_key": "",
+  "display_uuid": "",
+  "login_tx_id": "",
+  "data62": "",
+  "ticket": "",
+  "device_type": ""
 }

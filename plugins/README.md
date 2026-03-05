@@ -79,6 +79,45 @@ class YourPlugin(PluginBase):
 | 获取昵称 | `get_nickname` | `(wxid)` |
 | 下载图片 | `get_msg_image` | `(msg_id, from_wxid, ...)` |
 
+### 4.1 869 客户端专属能力（插件可直接调用）
+
+当 `bot.protocol_version == "869"` 时，插件拿到的 `bot` 实际为 `Client869`，可直接调用 869 专属方法；非 869 协议下这些方法会抛 `NotImplementedError`（请先判定协议或 `hasattr`）。
+
+**协议判定示例：**
+
+```python
+is_869 = str(getattr(bot, "protocol_version", "") or "").lower() == "869"
+if not is_869:
+    await bot.send_text_message(to_wxid, "当前不是 869 客户端")
+    return True
+```
+
+**常用 869 专属方法与参数：**
+
+| 功能 | 方法 | 参数 | 返回 |
+|---|---|---|---|
+| 群拍一拍 | `send_pat` | `(chatroom_wxid, to_wxid, scene=0)` | `dict`（原始返回） |
+| 撤回消息 | `revoke_message` | `(to_wxid, client_msg_id, create_time, new_msg_id)` | `bool` |
+| HTTP 同步消息 | `sync_message` | `()` | `(ok: bool, data: Any)` |
+| 获取个人二维码 | `get_my_qrcode` | `(style=0)` | `str`（base64） |
+| 获取标签列表 | `get_label_list` | `(wxid=None)` | `dict` |
+| 设置代理 | `set_proxy` | `(proxy)`（支持 `socks5://user:pass@ip:port` 字符串） | `bool` |
+| 修改步数 | `set_step` | `(count)` | `bool` |
+| 获取群信息 | `get_chatroom_info` | `(chatroom_wxid)` | `dict` |
+| 获取群二维码 | `get_chatroom_qrcode` | `(chatroom_wxid)` | `dict`（通常含 base64/描述） |
+| 下载表情(gif) | `download_emoji` | `(xml_content)`（表情消息 `MsgType=47` 的 XML 原文） | `dict`（通常包含下载结果） |
+| 869 动态调用（按 Swagger） | `call_path` | `(path, body=None, method="POST", key=None, params=None, raw=False)` | `Any` |
+| 869 动态调用（group/action） | `invoke` | `(group, action, body=None, method=None, key=None, params=None, raw=False)` | `Any` |
+
+**撤回的关键点：**
+
+- `client_msg_id/create_time/new_msg_id` 通常来自**发送接口返回值**（例如 `send_text_message` 返回的三元组）。
+- 引用消息（`@on_quote_message`）里的 `Quote.NewMsgId/Quote.Createtime` 不包含 `client_msg_id`，因此**无法可靠撤回“他人消息”**；建议撤回“机器人自己刚发的上一条”，或“引用机器人消息时按本地记录匹配撤回”。
+
+**群聊触发说明：**
+
+- 群聊消息默认可能受“群唤醒词/被@”过滤影响；确保你的命令能进插件：推荐用 `@on_at_message` 或在群里按全局唤醒词发起。
+
 ---
 
 ## 五、 插件开发规范

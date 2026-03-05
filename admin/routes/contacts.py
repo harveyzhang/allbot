@@ -1,7 +1,8 @@
 """
-联系人管理路由模块
-
-职责：处理联系人列表、详情、群成员等 API
+@input: FastAPI app、require_auth、联系人数据库函数与 bot 实例解析函数
+@output: 联系人列表/详情/群成员相关 API（含缓存兜底与批量详情）
+@position: 管理后台联系人路由层，负责前端联系人数据聚合
+@auto-doc: Update header and folder INDEX.md when this file changes
 """
 import os
 import time
@@ -32,6 +33,18 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
     """
     from admin.utils import require_auth
 
+    def _resolve_bot_wrapper():
+        current = get_bot_instance() if callable(get_bot_instance) else None
+        if current is not None:
+            return current
+        return bot_instance
+
+    def _resolve_wechat_client():
+        wrapper = _resolve_bot_wrapper()
+        if wrapper is None:
+            return None
+        return getattr(wrapper, "bot", wrapper)
+
     @app.get("/api/contacts/update_all", response_class=JSONResponse)
     async def api_update_all_contacts(request: Request, username: str = Depends(require_auth)):
         """更新数据库中所有联系人信息
@@ -42,8 +55,10 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
         logger.info(f"用户 {username} 请求更新数据库中所有联系人信息")
 
         try:
+            wrapper = _resolve_bot_wrapper()
+            wxapi = _resolve_wechat_client()
             # 确保bot_instance可用
-            if not bot_instance or not hasattr(bot_instance, 'bot'):
+            if wxapi is None:
                 logger.error("bot_instance未设置或不可用")
                 return JSONResponse(content={
                     "success": False,
@@ -51,7 +66,7 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                 })
 
             # 检查get_contract_detail方法
-            if not hasattr(bot_instance.bot, 'get_contract_detail'):
+            if not hasattr(wxapi, 'get_contract_detail'):
                 logger.error("bot.get_contract_detail方法不存在")
                 return JSONResponse(content={
                     "success": False,
@@ -60,11 +75,12 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
 
             # 保存原始wxid
             original_wxid = None
-            if hasattr(bot_instance.bot, 'wxid'):
-                original_wxid = bot_instance.bot.wxid
+            if hasattr(wxapi, 'wxid'):
+                original_wxid = wxapi.wxid
 
             # 设置wxid
-            bot_instance.bot.wxid = bot_instance.wxid
+            if wrapper is not None and hasattr(wrapper, "wxid"):
+                wxapi.wxid = wrapper.wxid
 
             # 从数据库中获取所有联系人
             from database.contacts_db import get_all_contacts
@@ -101,12 +117,12 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                     try:
                         # 调用API获取联系人详情
                         if asyncio.get_event_loop().is_running():
-                            detail = await bot_instance.bot.get_contract_detail(wxid)
+                            detail = await wxapi.get_contract_detail(wxid)
                         else:
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             try:
-                                detail = loop.run_until_complete(bot_instance.bot.get_contract_detail(wxid))
+                                detail = loop.run_until_complete(wxapi.get_contract_detail(wxid))
                             finally:
                                 loop.close()
 
@@ -252,7 +268,7 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
 
             # 恢复原始wxid
             if original_wxid is not None:
-                bot_instance.bot.wxid = original_wxid
+                wxapi.wxid = original_wxid
 
             # 返回结果
             return JSONResponse(content={
@@ -284,8 +300,11 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
         logger.info(f"用户 {username} 请求刷新联系人 {wxid} 的信息")
 
         try:
-            # 确保bot_instance可用
-            if not bot_instance or not hasattr(bot_instance, 'bot'):
+            wrapper = _resolve_bot_wrapper()
+            wxapi = _resolve_wechat_client()
+
+            # 确保 bot 实例可用
+            if wxapi is None:
                 logger.error("bot_instance未设置或不可用")
                 return JSONResponse(content={
                     "success": False,
@@ -293,7 +312,7 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                 })
 
             # 检查get_contract_detail方法
-            if not hasattr(bot_instance.bot, 'get_contract_detail'):
+            if not hasattr(wxapi, 'get_contract_detail'):
                 logger.error("bot.get_contract_detail方法不存在")
                 return JSONResponse(content={
                     "success": False,
@@ -301,28 +320,31 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                 })
 
             # 保存原始wxid
-            original_wxid = None
-            if hasattr(bot_instance.bot, 'wxid'):
-                original_wxid = bot_instance.bot.wxid
+            original_wxid = getattr(wxapi, "wxid", None) if hasattr(wxapi, "wxid") else None
 
             # 设置wxid并调用API
-            bot_instance.bot.wxid = bot_instance.wxid
+            if wrapper is not None and hasattr(wrapper, "wxid") and getattr(wrapper, "wxid") and hasattr(wxapi, "wxid"):
+                wxapi.wxid = getattr(wrapper, "wxid")
 
             # 调用API获取联系人详情
             import asyncio
             if asyncio.get_event_loop().is_running():
-                detail = await bot_instance.bot.get_contract_detail(wxid)
+                detail = await wxapi.get_contract_detail(wxid)
             else:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    detail = loop.run_until_complete(bot_instance.bot.get_contract_detail(wxid))
+                    detail = loop.run_until_complete(wxapi.get_contract_detail(wxid))
                 finally:
                     loop.close()
 
             # 恢复原始wxid
             if original_wxid is not None:
-                bot_instance.bot.wxid = original_wxid
+                try:
+                    if hasattr(wxapi, "wxid"):
+                        wxapi.wxid = original_wxid
+                except Exception:
+                    pass
 
             # 处理返回数据
             if not detail:
@@ -543,8 +565,11 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
 
         # 使用固定wxid调用微信API获取联系人列表
         try:
-            # 确保bot_instance可用
-            if not bot_instance or not hasattr(bot_instance, 'bot'):
+            wrapper = _resolve_bot_wrapper()
+            wxapi = _resolve_wechat_client()
+
+            # 确保 bot 实例可用
+            if wxapi is None:
                 logger.error("bot_instance未设置或不可用")
                 return JSONResponse(content={
                     "success": False,
@@ -553,7 +578,7 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                 })
 
             # 检查get_contract_list方法
-            if not hasattr(bot_instance.bot, 'get_contract_list'):
+            if not hasattr(wxapi, 'get_contract_list'):
                 logger.error("bot.get_contract_list方法不存在")
                 return JSONResponse(content={
                     "success": False,
@@ -562,11 +587,11 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                 })
 
             # 获取API请求的URL
-            if hasattr(bot_instance.bot, 'ip') and hasattr(bot_instance.bot, 'port'):
-                api_url = f"http://{bot_instance.bot.ip}:{bot_instance.bot.port}/GetContractList"
+            if hasattr(wxapi, 'ip') and hasattr(wxapi, 'port'):
+                api_url = f"http://{wxapi.ip}:{wxapi.port}/GetContractList"
                 logger.info(f"请求URL: {api_url}")
 
-            # 从bot状态中获取微信ID
+            # 从 bot 状态中获取微信 ID（仅旧协议依赖）
             bot_status = get_bot_status()
             wxid = None
 
@@ -575,14 +600,13 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                 wxid = bot_status["wxid"]
                 logger.info(f"从系统状态获取到wxid: {wxid}")
             else:
-                # 尝试从bot实例中获取wxid
-                if hasattr(bot_instance.bot, 'wxid') and bot_instance.bot.wxid:
-                    wxid = bot_instance.bot.wxid
+                # 尝试从 wrapper/bot 实例中获取 wxid
+                if wrapper is not None and hasattr(wrapper, "wxid") and getattr(wrapper, "wxid"):
+                    wxid = getattr(wrapper, "wxid")
+                    logger.info(f"从bot包装实例获取到wxid: {wxid}")
+                elif hasattr(wxapi, 'wxid') and getattr(wxapi, "wxid"):
+                    wxid = getattr(wxapi, "wxid")
                     logger.info(f"从bot实例获取到wxid: {wxid}")
-                else:
-                    # 回退到原来的固定wxid
-                    wxid = "wxid_uz9za1pqr3ea22"
-                    logger.warning(f"无法获取动态wxid，使用固定wxid: {wxid}")
 
             request_params = {
                 "Wxid": wxid,
@@ -592,13 +616,10 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
             logger.info(f"请求方式: POST")
             logger.info(f"请求参数: {request_params}")
 
-            # 保存原始wxid
-            original_wxid = None
-            if hasattr(bot_instance.bot, 'wxid'):
-                original_wxid = bot_instance.bot.wxid
-
-            # 设置wxid并调用API
-            bot_instance.bot.wxid = wxid
+            # 保存原始wxid（旧协议需要）
+            original_wxid = getattr(wxapi, "wxid", None) if hasattr(wxapi, "wxid") else None
+            if wxid and hasattr(wxapi, "wxid"):
+                wxapi.wxid = wxid
 
             # 调用API获取联系人
             import asyncio
@@ -612,14 +633,14 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
             # 首先尝试使用新的API方法
             try:
                 logger.info("尝试使用新的GetTotalContractList API获取联系人列表")
-                if hasattr(bot_instance.bot, 'get_total_contract_list'):
+                if hasattr(wxapi, 'get_total_contract_list'):
                     if asyncio.get_event_loop().is_running():
-                        contacts_data = await bot_instance.bot.get_total_contract_list(wx_seq=0, chatroom_seq=0)
+                        contacts_data = await wxapi.get_total_contract_list(wx_seq=0, chatroom_seq=0)
                     else:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         try:
-                            contacts_data = loop.run_until_complete(bot_instance.bot.get_total_contract_list(wx_seq=0, chatroom_seq=0))
+                            contacts_data = loop.run_until_complete(wxapi.get_total_contract_list(wx_seq=0, chatroom_seq=0))
                         finally:
                             loop.close()
                     logger.info("成功使用新的GetTotalContractList API获取联系人列表")
@@ -642,12 +663,12 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
 
                     # 获取当前批次的联系人
                     if asyncio.get_event_loop().is_running():
-                        batch_data = await bot_instance.bot.get_contract_list(wx_seq=wx_seq, chatroom_seq=chatroom_seq)
+                        batch_data = await wxapi.get_contract_list(wx_seq=wx_seq, chatroom_seq=chatroom_seq)
                     else:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         try:
-                            batch_data = loop.run_until_complete(bot_instance.bot.get_contract_list(wx_seq=wx_seq, chatroom_seq=chatroom_seq))
+                            batch_data = loop.run_until_complete(wxapi.get_contract_list(wx_seq=wx_seq, chatroom_seq=chatroom_seq))
                         finally:
                             loop.close()
 
@@ -688,7 +709,11 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
 
             # 恢复原始wxid
             if original_wxid is not None:
-                bot_instance.bot.wxid = original_wxid
+                try:
+                    if hasattr(wxapi, "wxid"):
+                        wxapi.wxid = original_wxid
+                except Exception:
+                    pass
 
             # 打印返回数据的完整结构，帮助调试
             logger.debug(f"API返回数据结构: {contacts_data}")
@@ -719,7 +744,7 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
             contact_list = []
 
             # 检查是否支持获取联系人详情
-            has_contract_detail_method = hasattr(bot_instance.bot, 'get_contract_detail')
+            has_contract_detail_method = hasattr(wxapi, 'get_contract_detail')
 
             if has_contract_detail_method:
                 logger.info("使用get_contract_detail方法获取联系人详细信息")
@@ -742,12 +767,12 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                     try:
                         # 调用API获取联系人详情
                         if asyncio.get_event_loop().is_running():
-                            contact_details = await bot_instance.bot.get_contract_detail(batch)
+                            contact_details = await wxapi.get_contract_detail(batch)
                         else:
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             try:
-                                contact_details = loop.run_until_complete(bot_instance.bot.get_contract_detail(batch))
+                                contact_details = loop.run_until_complete(wxapi.get_contract_detail(batch))
                             finally:
                                 loop.close()
 
@@ -893,7 +918,7 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                     contact_list.append(contact)
             else:
                 # 回退到使用昵称API
-                has_nickname_method = hasattr(bot_instance.bot, 'get_nickname')
+                has_nickname_method = hasattr(wxapi, 'get_nickname')
                 if has_nickname_method:
                     logger.info("使用get_nickname方法获取联系人昵称")
 
@@ -915,12 +940,12 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
                         try:
                             # 调用API获取昵称
                             if asyncio.get_event_loop().is_running():
-                                nicknames = await bot_instance.bot.get_nickname(batch)
+                                nicknames = await wxapi.get_nickname(batch)
                             else:
                                 loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(loop)
                                 try:
-                                    nicknames = loop.run_until_complete(bot_instance.bot.get_nickname(batch))
+                                    nicknames = loop.run_until_complete(wxapi.get_nickname(batch))
                                 finally:
                                     loop.close()
 
@@ -1094,20 +1119,8 @@ def register_contacts_routes(app, bot_instance, get_bot_instance, get_bot_status
             except Exception as e:
                 logger.error(f"从数据库获取联系人失败: {str(e)}")
 
-            # 获取机器人实例
-            # 从会话数据中获取wxid
-            session_cookie = request.cookies.get("session")
-            wxid_from_session = None
-            if session_cookie:
-                try:
-                    serializer = URLSafeSerializer(config["secret_key"], "session")
-                    session_data = serializer.loads(session_cookie)
-                    wxid_from_session = session_data.get("wxid")
-                except Exception as e:
-                    logger.error(f"解析会话数据失败: {str(e)}")
-
-            # 获取机器人实例
-            wxapi = get_bot(wxid_from_session)
+            # 获取机器人实例（统一从 app_setup 注入，不再依赖历史会话反序列化）
+            wxapi = _resolve_wechat_client()
             if not wxapi:
                 logger.error("无法获取机器人实例")
                 # 如果有缓存数据，尝试从缓存返回

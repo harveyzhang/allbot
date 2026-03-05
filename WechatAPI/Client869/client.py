@@ -1,7 +1,7 @@
 """
 @input: aiohttp/http 接口, pysilk 语音解码; bot_core 与插件层的调用契约
 @output: Client869 全接口动态调用能力与 bot_core 兼容方法
-@position: 869 协议专用客户端，隔离新协议实现，最小侵入接入现有框架
+@position: 869 协议专用客户端，隔离新协议实现，最小侵入接入现有框架（含群信息/撤回等兼容兜底）
 @auto-doc: Update header and folder INDEX.md when this file changes
 """
 
@@ -27,7 +27,7 @@ from WechatAPI.errors import UserLoggedOut
 
 TEXT_VALUE_KEYS = ("string", "String", "str", "Str", "value", "Value", "text", "Text")
 
-KEY_AUTH_KEY_CANDIDATES = ("AuthKey", "auth_key", "Key", "key")
+KEY_AUTH_KEY_CANDIDATES = ("AuthKey", "auth_key", "Key", "key", "License", "license")
 KEY_TOKEN_CANDIDATES = ("TokenKey", "token_key", "tokenKey")
 KEY_POLL_CANDIDATES = ("PollKey", "poll_key", "Uuid", "uuid")
 KEY_DISPLAY_UUID_CANDIDATES = ("DisplayUuid", "display_uuid", "Uuid", "uuid")
@@ -914,12 +914,48 @@ class Client869:
 
     @classmethod
     def _normalize_contract_detail_item(cls, item: Dict[str, Any]) -> Dict[str, Any]:
-        """将联系人详情中的文本字段统一补齐为 {string: ...} 结构，兼容旧调用方。"""
+        """将 869 联系人详情统一补齐为旧 Client 约定字段（尽量不破坏原始结构）。"""
         if not isinstance(item, dict):
             return item
 
+        normalized: Dict[str, Any] = dict(item)
+
+        username = cls._extract_contact_username(item).strip()
+        if username:
+            normalized.setdefault("UserName", {"string": username})
+            normalized.setdefault("Username", {"string": username})
+            normalized.setdefault("Wxid", username)
+            normalized.setdefault("wxid", username)
+
+        nickname = _extract_text(
+            _pick_first(
+                item,
+                (
+                    "NickName",
+                    "nickName",
+                    "nickname",
+                    "DisplayName",
+                    "displayName",
+                    "display_name",
+                ),
+                "",
+            ),
+            "",
+        ).strip()
+        if nickname:
+            normalized.setdefault("NickName", {"string": nickname})
+            normalized.setdefault("nickname", nickname)
+
+        remark = _extract_text(
+            _pick_first(item, ("Remark", "remark"), ""),
+            "",
+        ).strip()
+        if remark:
+            normalized.setdefault("Remark", {"string": remark})
+            normalized.setdefault("remark", remark)
+
         for key in ("NickName", "Remark", "DisplayName", "Signature"):
-            value = item.get(key)
+            value = normalized.get(key)
             if not isinstance(value, dict):
                 continue
             if "string" in value and value.get("string") not in (None, ""):
@@ -927,7 +963,23 @@ class Client869:
             text = _extract_text(value, "")
             if text:
                 value["string"] = text
-        return item
+
+        big_avatar = _extract_text(
+            _pick_first(item, ("BigHeadImgUrl", "bigHeadImgUrl", "big_head_img_url"), ""),
+            "",
+        ).strip()
+        small_avatar = _extract_text(
+            _pick_first(item, ("SmallHeadImgUrl", "smallHeadImgUrl", "small_head_img_url"), ""),
+            "",
+        ).strip()
+        if big_avatar:
+            normalized.setdefault("BigHeadImgUrl", big_avatar)
+        if small_avatar:
+            normalized.setdefault("SmallHeadImgUrl", small_avatar)
+        if not normalized.get("avatar"):
+            normalized["avatar"] = big_avatar or small_avatar
+
+        return normalized
 
     @classmethod
     def _normalize_contract_list_payload(cls, payload: Any) -> Dict[str, Any]:
@@ -952,27 +1004,45 @@ class Client869:
 
         result: Dict[str, Any] = dict(payload)
 
+        # 869 Swagger 常见返回：Data.ContactList 为 dict（内部字段为 lowerCamelCase）
+        embedded = result.get("ContactList")
+        if isinstance(embedded, dict):
+            result = dict(embedded)
+
         # seq 字段：869 Swagger 使用 CurrentChatRoomContactSeq（R 大写），旧逻辑常用 CurrentChatroomContactSeq
         if "CurrentChatroomContactSeq" not in result and "CurrentChatRoomContactSeq" in result:
             result["CurrentChatroomContactSeq"] = result.get("CurrentChatRoomContactSeq")
         if "CurrentChatRoomContactSeq" not in result and "CurrentChatroomContactSeq" in result:
             result["CurrentChatRoomContactSeq"] = result.get("CurrentChatroomContactSeq")
 
+        # 869 lowerCamelCase -> 旧字段
+        if "CurrentWxcontactSeq" not in result and "currentWxcontactSeq" in result:
+            result["CurrentWxcontactSeq"] = result.get("currentWxcontactSeq")
+        if "CurrentChatRoomContactSeq" not in result and "currentChatRoomContactSeq" in result:
+            result["CurrentChatRoomContactSeq"] = result.get("currentChatRoomContactSeq")
+        if "CurrentChatroomContactSeq" not in result and "CurrentChatRoomContactSeq" in result:
+            result["CurrentChatroomContactSeq"] = result.get("CurrentChatRoomContactSeq")
+
         # 联系人列表：可能是 ContactUsernameList 或 ContactList
         usernames = result.get("ContactUsernameList")
         if not isinstance(usernames, list):
-            contact_list = result.get("ContactList")
-            if isinstance(contact_list, list):
-                derived = []
-                for item in contact_list:
-                    if not isinstance(item, dict):
-                        continue
-                    wxid = cls._extract_contact_username(item)
-                    if wxid:
-                        derived.append(wxid)
-                result["ContactUsernameList"] = derived
+            # 869 lowerCamelCase contactUsernameList
+            camel_list = result.get("contactUsernameList")
+            if isinstance(camel_list, list):
+                result["ContactUsernameList"] = [str(x).strip() for x in camel_list if str(x).strip()]
             else:
-                result["ContactUsernameList"] = []
+                contact_list = result.get("ContactList")
+                if isinstance(contact_list, list):
+                    derived = []
+                    for item in contact_list:
+                        if not isinstance(item, dict):
+                            continue
+                        wxid = cls._extract_contact_username(item)
+                        if wxid:
+                            derived.append(wxid)
+                    result["ContactUsernameList"] = derived
+                else:
+                    result["ContactUsernameList"] = []
 
         # 兜底 seq 字段
         if "CurrentWxcontactSeq" not in result:
@@ -991,7 +1061,16 @@ class Client869:
 
         data = await self.call_path("/friend/GetContactDetailsList", body=payload)
         if isinstance(data, dict):
-            for key in ("ContactList", "List", "Items", "Data"):
+            for key in (
+                "ContactList",
+                "contactList",
+                "List",
+                "list",
+                "Items",
+                "items",
+                "Data",
+                "data",
+            ):
                 value = data.get(key)
                 if isinstance(value, list):
                     return [self._normalize_contract_detail_item(item) for item in value if isinstance(item, dict)]
@@ -1014,14 +1093,78 @@ class Client869:
         offset: int = 0,
         limit: int = 0,
     ) -> Dict[str, Any]:
-        payload = {
-            "CurrentWxcontactSeq": wx_seq,
-            "CurrentChatRoomContactSeq": chatroom_seq,
-            "Offset": offset,
-            "Limit": limit,
-        }
-        data = await self.call_path("/friend/GetContactList", body=payload)
-        return self._normalize_contract_list_payload(data)
+        """获取全部通讯录联系人。
+
+        869 Swagger 仅暴露 `/friend/GetContactList`（基于 seq 分批拉取），因此这里做“自动翻页”合并，
+        保证上层（管理后台/框架）拿到的是完整 `ContactUsernameList`。
+
+        参数 offset/limit 为框架兼容保留：
+        - 869 端不支持 Offset/Limit 入参，本实现会在本地对合并后的结果做切片；
+        - 若 limit > 0，则最多返回 limit 条（从 offset 开始）。
+        """
+
+        merged: list[str] = []
+        seen: set[str] = set()
+
+        current_wx_seq = int(wx_seq or 0)
+        current_chatroom_seq = int(chatroom_seq or 0)
+
+        last_payload: Dict[str, Any] = {}
+        max_iterations = 200
+
+        for _ in range(max_iterations):
+            batch_payload = await self.get_contract_list(
+                wx_seq=current_wx_seq,
+                chatroom_seq=current_chatroom_seq,
+            )
+            if isinstance(batch_payload, dict):
+                last_payload = batch_payload
+
+            batch_list = []
+            if isinstance(batch_payload, dict):
+                batch_list = batch_payload.get("ContactUsernameList") or []
+
+            if isinstance(batch_list, list):
+                for item in batch_list:
+                    wxid = str(item).strip()
+                    if not wxid or wxid in seen:
+                        continue
+                    seen.add(wxid)
+                    merged.append(wxid)
+
+            next_wx_seq = _safe_int(
+                (batch_payload or {}).get("CurrentWxcontactSeq"),
+                current_wx_seq,
+            )
+            next_chatroom_seq = _safe_int(
+                (batch_payload or {}).get("CurrentChatroomContactSeq"),
+                current_chatroom_seq,
+            )
+
+            if (next_wx_seq == current_wx_seq and next_chatroom_seq == current_chatroom_seq) or not batch_list:
+                current_wx_seq = next_wx_seq
+                current_chatroom_seq = next_chatroom_seq
+                break
+
+            current_wx_seq = next_wx_seq
+            current_chatroom_seq = next_chatroom_seq
+
+            if limit and offset >= 0 and len(merged) >= offset + limit:
+                break
+
+        # 兼容 offset/limit（869 服务端不支持，改为本地切片）
+        start = max(int(offset or 0), 0)
+        if limit and int(limit) > 0:
+            sliced = merged[start : start + int(limit)]
+        else:
+            sliced = merged[start:]
+
+        normalized: Dict[str, Any] = dict(last_payload or {})
+        normalized["ContactUsernameList"] = sliced
+        normalized["CurrentWxcontactSeq"] = current_wx_seq
+        normalized["CurrentChatroomContactSeq"] = current_chatroom_seq
+        normalized.setdefault("TotalCount", len(merged))
+        return normalized
 
     async def get_nickname(self, wxid: Union[str, list[str]]) -> Union[str, list[str]]:
         details = await self.get_contract_detail(wxid)
@@ -1155,16 +1298,61 @@ class Client869:
         """兼容旧客户端：获取群聊信息。"""
         payload = {"ChatRoomWxIdList": [chatroom]}
         data = await self.call_path("/group/GetChatRoomInfo", body=payload)
+        room_info: Dict[str, Any] = {}
         if isinstance(data, dict):
             if isinstance(data.get("ChatRoomInfo"), list) and data["ChatRoomInfo"]:
                 first = data["ChatRoomInfo"][0]
-                return first if isinstance(first, dict) else {}
-            members = data.get("MemberList")
-            if isinstance(members, list):
-                return {"MemberList": members}
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            return data[0]
-        return {}
+                if isinstance(first, dict):
+                    room_info = dict(first)
+            elif isinstance(data, dict):
+                room_info = dict(data)
+        elif isinstance(data, list) and data and isinstance(data[0], dict):
+            room_info = dict(data[0])
+
+        if not room_info:
+            return {}
+
+        members = (
+            room_info.get("MemberList")
+            or room_info.get("ChatRoomMemberList")
+            or room_info.get("ChatRoomMember")
+            or room_info.get("Members")
+        )
+        if not isinstance(members, list):
+            members = []
+
+        member_count = _safe_int(
+            _pick_first(
+                room_info,
+                (
+                    "MemberCount",
+                    "memberCount",
+                    "ChatRoomMemberCount",
+                    "ChatroomMemberCount",
+                    "TotalMemberCount",
+                    "Count",
+                ),
+                0,
+            ),
+            0,
+        )
+        if member_count <= 0 and members:
+            member_count = len(members)
+
+        if member_count <= 0:
+            try:
+                fallback_members = await self.get_chatroom_member_list(chatroom)
+                if isinstance(fallback_members, list):
+                    if not members:
+                        members = fallback_members
+                    member_count = len(fallback_members)
+            except Exception:
+                pass
+
+        room_info["MemberCount"] = int(member_count)
+        if members:
+            room_info["MemberList"] = members
+        return room_info
 
     async def get_chatroom_announce(self, chatroom: str) -> Dict[str, Any]:
         """兼容旧客户端：获取群公告。"""
@@ -1814,15 +2002,29 @@ class Client869:
             "IsImage": False,
         }
         try:
-            data = await self.call_path("/message/RevokeMsg", body=payload)
-            if self._looks_like_send_ack(data):
+            raw_payload = await self.request("/message/RevokeMsg", body=payload)
+            if isinstance(raw_payload, dict):
+                data = raw_payload.get("Data")
+                if self._looks_like_send_ack(data):
+                    return True
+                success = self._coerce_optional_bool(raw_payload.get("Success"))
+                if success is True:
+                    return True
+            if raw_payload is not None:
                 return True
         except Exception as exc:
             logger.warning("Client869 RevokeMsg 调用异常，尝试回退 RevokeMsgNew: {}", exc)
 
         try:
-            data = await self.call_path("/message/RevokeMsgNew", body=payload)
-            return self._looks_like_send_ack(data)
+            raw_payload = await self.request("/message/RevokeMsgNew", body=payload)
+            if isinstance(raw_payload, dict):
+                data = raw_payload.get("Data")
+                if self._looks_like_send_ack(data):
+                    return True
+                success = self._coerce_optional_bool(raw_payload.get("Success"))
+                if success is True:
+                    return True
+            return raw_payload is not None
         except Exception as exc:
             logger.error("Client869 RevokeMsgNew 调用异常: {}", exc)
             return False

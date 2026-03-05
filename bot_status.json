@@ -1,1 +1,12 @@
-{"status": "error", "timestamp": 1772266167.593658, "details": "\u542f\u52a8\u5931\u8d25: Cannot connect to host 127.0.0.1:9000 ssl:default [Connect call failed ('127.0.0.1', 9000)]", "qrcode_url": "https://api.qrserver.com/v1/create-qr-code/?data=http://weixin.qq.com/x/QYJpWgStBrKvfRLuJuJ0", "uuid": "QYJpWgStBrKvfRLuJuJ0", "expires_in": "\u9519\u8bef", "nickname": null, "wxid": "sxkiss_com", "alias": null}
+{
+  "status": "initialized",
+  "timestamp": 0,
+  "details": "",
+  "qrcode_url": "",
+  "uuid": "",
+  "expires_in": "",
+  "nickname": "",
+  "wxid": "",
+  "alias": "",
+  "initialized": false
+}

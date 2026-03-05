@@ -1,3 +1,9 @@
+{#
+@input: /api/login/qrcode、/api/bot/status、/api/login/verify_code、/api/login/force_mac_qrcode
+@output: 未登录二维码页面（扫码登录/自动刷新/验证码提交）
+@position: admin/templates 登录入口页面
+@auto-doc: Update header and folder INDEX.md when this file changes
+#}
 {% extends "base.html" %}
 
 {% block title %}微信登录 - AllBot管理后台{% endblock %}
@@ -328,6 +334,34 @@
                             </div>
                         </div>
 
+                        <div class="manual-input-container" id="manual-verifycode-container">
+                            <div class="card">
+                                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">
+                                        <i class="bi bi-shield-lock me-2"></i>验证码登录（869）
+                                    </h5>
+                                    <span class="badge bg-secondary" id="login-mode-badge">模式: -</span>
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted mb-3">
+                                        手机出现数字验证码时，输入验证码提交。若没有验证码提示，可切换为 mac 登录并自动刷新二维码。
+                                    </p>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="verify-code-input" placeholder="请输入手机显示的数字验证码">
+                                        <button class="btn btn-primary" type="button" id="btn-submit-verify-code">
+                                            <i class="bi bi-check2-circle me-1"></i>提交验证码
+                                        </button>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mt-2">
+                                        <small class="text-muted" id="verify-code-hint"></small>
+                                        <button class="btn btn-sm btn-outline-warning" type="button" id="btn-force-mac-login">
+                                            <i class="bi bi-phone me-1"></i>无验证码，切换MAC登录
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 操作按钮 -->
                         <div class="d-flex justify-content-between w-100 mt-3">
                             <button class="btn btn-outline-secondary" id="btn-toggle-manual">
@@ -363,10 +397,14 @@
 {% block extra_js %}
 <script>
     let qrcodeUrl = '';
+    let currentQRCodeUuid = '';
+    let currentLoginMode = '';
     let countdownTimer = null;
     let initialCountdown = 300; // 5分钟倒计时
     let currentCountdown = initialCountdown;
     let statusCheckInterval = null;
+    let lastStatusData62 = '';
+    let lastStatusTicket = '';
 
     // 初始化页面
     document.addEventListener('DOMContentLoaded', function() {
@@ -430,6 +468,80 @@
             }
         });
 
+        // 提交验证码（869）
+        document.getElementById('btn-submit-verify-code').addEventListener('click', async function() {
+            const input = document.getElementById('verify-code-input');
+            const code = (input.value || '').trim();
+            if (!code) {
+                alert('请输入手机上显示的数字验证码');
+                return;
+            }
+
+            const btn = document.getElementById('btn-submit-verify-code');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 提交中...';
+
+            try {
+                const response = await fetch('/api/login/verify_code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: code,
+                        data62: lastStatusData62 || '',
+                        ticket: lastStatusTicket || ''
+                    })
+                });
+                const data = await response.json();
+                if (data && data.success) {
+                    document.getElementById('verify-code-hint').textContent = '验证码已提交，等待登录完成...';
+                    input.value = '';
+                } else {
+                    const message = (data && (data.error || data.message)) ? (data.error || data.message) : '提交失败';
+                    alert('验证码提交失败: ' + message);
+                }
+            } catch (e) {
+                alert('验证码提交失败: ' + (e && e.message ? e.message : e));
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
+
+        // 强制切换 mac 拉码（无验证码场景）
+        document.getElementById('btn-force-mac-login').addEventListener('click', async function() {
+            const btn = document.getElementById('btn-force-mac-login');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 切换中...';
+            try {
+                const response = await fetch('/api/login/force_mac_qrcode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (data && data.success && data.data && data.data.qrcode_url) {
+                    qrcodeUrl = data.data.qrcode_url;
+                    currentQRCodeUuid = data.data.uuid || currentQRCodeUuid;
+                    currentLoginMode = 'mac';
+                    document.getElementById('login-mode-badge').textContent = '模式: mac';
+                    setQRCodeImage(qrcodeUrl);
+                    initialCountdown = data.data.expires_in || 240;
+                    resetCountdown();
+                    updateQRCodeStatus('已切换到 mac 二维码，请重新扫码');
+                } else {
+                    const message = (data && (data.error || data.message)) ? (data.error || data.message) : '切换失败';
+                    alert('切换 mac 拉码失败: ' + message);
+                }
+            } catch (e) {
+                alert('切换 mac 拉码失败: ' + (e && e.message ? e.message : e));
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
+
         // 重试按钮
         document.getElementById('btn-retry').addEventListener('click', function() {
             resetQRCode();
@@ -469,8 +581,20 @@
 
             // 修复响应数据结构判断逻辑
             if (data.success && data.data && data.data.qrcode_url) {
-                qrcodeUrl = data.data.qrcode_url;
-                setQRCodeImage(qrcodeUrl);
+                const nextUrl = data.data.qrcode_url;
+                const nextUuid = data.data.uuid || '';
+                const nextMode = (data.data.login_mode || '').toString().toLowerCase();
+
+                if (nextUuid) {
+                    currentQRCodeUuid = nextUuid;
+                }
+                if (nextMode) {
+                    currentLoginMode = nextMode;
+                    document.getElementById('login-mode-badge').textContent = '模式: ' + nextMode;
+                }
+
+                qrcodeUrl = nextUrl;
+                setQRCodeImage(nextUrl);
 
                 // 重置倒计时 - 使用响应中的expires_in (如果有)
                 if (data.data.expires_in) {
@@ -486,6 +610,36 @@
         } catch (error) {
             console.error('获取二维码URL出错:', error);
             showQRCodeError('获取二维码失败，请点击刷新按钮重试');
+        }
+    }
+
+    async function maybeRefreshQRCodeFromServer() {
+        try {
+            const response = await fetch('/api/login/qrcode');
+            const data = await response.json();
+            if (!data || !data.success || !data.data) return;
+
+            const nextUrl = data.data.qrcode_url || '';
+            const nextUuid = data.data.uuid || '';
+            const nextMode = (data.data.login_mode || '').toString().toLowerCase();
+
+            if (nextMode && nextMode !== currentLoginMode) {
+                currentLoginMode = nextMode;
+                document.getElementById('login-mode-badge').textContent = '模式: ' + nextMode;
+            }
+
+            const changed = (nextUuid && nextUuid !== currentQRCodeUuid) || (nextUrl && nextUrl !== qrcodeUrl);
+            if (!changed) return;
+
+            if (nextUuid) currentQRCodeUuid = nextUuid;
+            if (nextUrl) {
+                qrcodeUrl = nextUrl;
+                setQRCodeImage(nextUrl);
+                if (data.data.expires_in) initialCountdown = data.data.expires_in;
+                resetCountdown();
+            }
+        } catch (e) {
+            // ignore
         }
     }
 
@@ -635,6 +789,15 @@
                 } else if (statusData.status === 'waiting_login') {
                     // 等待登录
                     updateQRCodeStatus('等待扫描二维码登录');
+                    const mode = (statusData.login_mode || statusData.loginMode || statusData.device_type || '').toString().toLowerCase();
+                    if (mode && mode !== currentLoginMode) {
+                        currentLoginMode = mode;
+                        document.getElementById('login-mode-badge').textContent = '模式: ' + mode;
+                    }
+
+                    if (statusData.data62) lastStatusData62 = statusData.data62;
+                    if (statusData.ticket) lastStatusTicket = statusData.ticket;
+                    await maybeRefreshQRCodeFromServer();
                 } else if (statusData.status === 'scanned') {
                     // 已扫描等待确认
                     updateQRCodeStatus('已扫描，请在手机上确认登录');

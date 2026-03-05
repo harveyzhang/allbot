@@ -1,3 +1,9 @@
+{#
+@input: /api/contacts、/api/contacts/details、/api/contacts/update_all 等联系人相关 API
+@output: 管理后台联系人管理 UI（分类/搜索/刷新/批量详情）
+@position: admin/templates 联系人页面模板
+@auto-doc: Update header and folder INDEX.md when this file changes
+#}
 {% extends "base.html" %}
 
 {% block title %}联系人管理 - AllBot管理后台{% endblock %}
@@ -415,7 +421,7 @@
 
                     <div id="contact-details-content" class="d-none">
                         <div class="text-center mb-4">
-                            <img id="contact-avatar" src="/static/img/favicon.ico" alt="联系人头像" class="contact-avatar large mb-3">
+                            <img id="contact-avatar" src="/static/img/favicon.ico" alt="联系人头像" class="contact-avatar large mb-3" onerror="this.onerror=null;this.src='/static/img/favicon.ico';">
                             <h4 id="contact-name" class="mb-0">联系人姓名</h4>
                             <button id="refresh-contact-btn" class="btn btn-sm btn-outline-primary mt-2" title="刷新联系人信息">
                                 <i class="bi bi-arrow-clockwise"></i> 刷新联系人信息
@@ -825,7 +831,10 @@
 
         isLoadingContacts = true;
         const refreshBtn = $('.refresh-contacts-btn');
-        const originalBtnHtml = refreshBtn.html();
+        const originalBtnHtml = [];
+        refreshBtn.each(function(index, el) {
+            originalBtnHtml[index] = $(el).html();
+        });
 
         // 更新按钮状态
         refreshBtn.html('<i class="bi bi-arrow-repeat spin"></i>');
@@ -940,7 +949,12 @@
                 }
 
                 // 恢复按钮状态
-                refreshBtn.html(originalBtnHtml);
+                refreshBtn.each(function(index, el) {
+                    const html = (originalBtnHtml[index] !== undefined)
+                        ? originalBtnHtml[index]
+                        : (originalBtnHtml[0] !== undefined ? originalBtnHtml[0] : '');
+                    $(el).html(html);
+                });
                 refreshBtn.prop('disabled', false);
             },
             error: function(xhr, status, error) {
@@ -956,7 +970,12 @@
                 $('#contacts-loading').hide();
 
                 // 恢复按钮状态
-                refreshBtn.html(originalBtnHtml);
+                refreshBtn.each(function(index, el) {
+                    const html = (originalBtnHtml[index] !== undefined)
+                        ? originalBtnHtml[index]
+                        : (originalBtnHtml[0] !== undefined ? originalBtnHtml[0] : '');
+                    $(el).html(html);
+                });
                 refreshBtn.prop('disabled', false);
             }
         });
@@ -1244,7 +1263,7 @@
                 contactElement.className = `contact-item d-flex align-items-center ${isActive}`;
                 contactElement.setAttribute('data-wxid', contact.wxid);
                 contactElement.innerHTML = `
-                    <img src="${contact.avatar || '/static/img/favicon.ico'}" alt="${displayName}" class="contact-avatar me-3">
+                    <img src="${contact.avatar || '/static/img/favicon.ico'}" alt="${displayName}" class="contact-avatar me-3" onerror="this.onerror=null;this.src='/static/img/favicon.ico';">
                     <div class="flex-grow-1">
                         <div class="d-flex justify-content-between align-items-center">
                             <h6 class="mb-0">${displayName}</h6>
@@ -1628,7 +1647,7 @@
                 <div class="col member-item" data-wxid="${wxid}" data-nickname="${displayName}">
                     <div class="card h-100 cursor-pointer" onclick="showMemberDetail('${wxid}', '${group_wxid}')">
                         <div class="card-body d-flex align-items-center">
-                            <img src="${avatar}" alt="${displayName}" class="me-3" style="width: 48px; height: 48px; border-radius: 24px;">
+                            <img src="${avatar}" alt="${displayName}" class="me-3" style="width: 48px; height: 48px; border-radius: 24px;" onerror="this.onerror=null;this.src='/static/img/favicon.ico';">
                             <div>
                                 <h6 class="card-title mb-1">${displayName}</h6>
                                 <p class="card-text small text-muted mb-0">${wxid}</p>
@@ -2201,7 +2220,7 @@
                 <div class="form-check">
                     <input class="form-check-input batch-contact-checkbox" type="checkbox" value="${contact.wxid}" id="contact-${contact.wxid}">
                     <label class="form-check-label d-flex align-items-center" for="contact-${contact.wxid}">
-                        <img src="${contact.avatar || '/static/img/default-avatar.png'}" class="me-2" style="width: 24px; height: 24px; border-radius: 12px;">
+                        <img src="${contact.avatar || '/static/img/favicon.ico'}" class="me-2" style="width: 24px; height: 24px; border-radius: 12px;" onerror="this.onerror=null;this.src='/static/img/favicon.ico';">
                         <span>${contact.nickname || contact.wxid}</span>
                     </label>
                 </div>
@@ -2384,7 +2403,7 @@
                 <div class="form-check">
                     <input class="form-check-input reminder-contact-checkbox" type="checkbox" value="${contact.wxid}" id="reminder-contact-${contact.wxid}" ${isPreselected ? 'checked' : ''}>
                     <label class="form-check-label d-flex align-items-center" for="reminder-contact-${contact.wxid}">
-                        <img src="${contact.avatar || '/static/img/default-avatar.png'}" class="me-2" style="width: 24px; height: 24px; border-radius: 12px;">
+                        <img src="${contact.avatar || '/static/img/favicon.ico'}" class="me-2" style="width: 24px; height: 24px; border-radius: 12px;" onerror="this.onerror=null;this.src='/static/img/favicon.ico';">
                         <span>${contact.nickname || contact.wxid}</span>
                     </label>
                 </div>
@@ -3172,7 +3191,7 @@
         // 渲染详情内容
         const detailHtml = `
             <div class="text-center mb-4">
-                <img src="${avatar}" alt="${displayName}" class="rounded-circle mb-3" style="width: 100px; height: 100px;">
+                <img src="${avatar}" alt="${displayName}" class="rounded-circle mb-3" style="width: 100px; height: 100px;" onerror="this.onerror=null;this.src='/static/img/favicon.ico';">
                 <h4>${displayName}</h4>
                 <p class="text-muted">${member.wxid}</p>
                 ${source === 'database' ? '<span class="badge bg-secondary">来自数据库</span>' : '<span class="badge bg-primary">来自API</span>'}
