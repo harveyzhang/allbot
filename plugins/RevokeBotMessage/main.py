@@ -68,7 +68,8 @@ def _find_send_ack(payload: Any, *, depth: int = 0, max_depth: int = 4) -> Optio
     if depth > max_depth:
         return None
     if isinstance(payload, dict):
-        if _pick_first(payload, CLIENT_MSG_ID_KEYS) is not None and _pick_first(payload, CREATE_TIME_KEYS) is not None and _pick_first(payload, NEW_MSG_ID_KEYS) is not None:
+        # create_time 在部分发送接口返回里可能缺失；允许回退为当前时间
+        if _pick_first(payload, CLIENT_MSG_ID_KEYS) is not None and _pick_first(payload, NEW_MSG_ID_KEYS) is not None:
             return payload
         for value in payload.values():
             found = _find_send_ack(value, depth=depth + 1, max_depth=max_depth)
@@ -347,6 +348,15 @@ class RevokeBotMessage(PluginBase):
             return False
 
         token = registry.get_by_new_msg_id(quoted_new_msg_id) if quoted_new_msg_id else registry.get_last_for_conv(to_wxid)
+        if token is None and quoted_new_msg_id:
+            # 兜底：部分协议撤回仅依赖 NewMsgId/ToUserName；client_msg_id 缺失时用 0 触发客户端内部降级。
+            token = RevokeToken(
+                to_wxid=to_wxid,
+                client_msg_id="0",
+                create_time=_safe_int(quote.get("Createtime"), int(time.time())),
+                new_msg_id=quoted_new_msg_id,
+                sent_at=time.time(),
+            )
         return await self._revoke_token(bot, to_wxid, token)
 
     @on_text_message(priority=60)

@@ -2049,8 +2049,17 @@ class Client869:
                 data = raw_payload.get("Data")
                 if self._looks_like_send_ack(data):
                     return True
+                code = raw_payload.get("Code")
+                text = raw_payload.get("Text") or raw_payload.get("Message") or raw_payload.get("message") or ""
                 success = self._coerce_optional_bool(raw_payload.get("Success"))
                 if success is True:
+                    return True
+                # 869 的大量接口会返回 Success=false 但 Code=200/0 且实际成功（见 send 系列日志）。
+                # 对撤回来说，只要 Code 正常且 Text 为空/非错误，视为成功，避免“已撤回但返回失败”。
+                if code in (0, 200):
+                    lowered = str(text).strip().lower()
+                    if lowered and any(token in lowered for token in ("错误", "失败", "error", "fail", "提交数据")):
+                        return False
                     return True
                 if success is False:
                     return False

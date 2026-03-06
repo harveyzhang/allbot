@@ -1312,50 +1312,30 @@ class XYBot:
                     if isinstance(quote_appmsg.find("songlyric"), ET.Element)
                     else ""
                 )
+                quote_appattach = quote_appmsg.find("appattach") if isinstance(quote_appmsg, ET.Element) else None
                 quote_message["appattach"] = {}
-                quote_message["appattach"]["totallen"] = (
-                    int(quote_appmsg.find("appattach").find("totallen").text)
-                    if isinstance(
-                        quote_appmsg.find("appattach").find("totallen"), ET.Element
-                    )
-                    else 0
-                )
-                quote_message["appattach"]["attachid"] = (
-                    quote_appmsg.find("appattach").find("attachid").text
-                    if isinstance(
-                        quote_appmsg.find("appattach").find("attachid"), ET.Element
-                    )
-                    else ""
-                )
-                quote_message["appattach"]["emoticonmd5"] = (
-                    quote_appmsg.find("appattach").find("emoticonmd5").text
-                    if isinstance(
-                        quote_appmsg.find("appattach").find("emoticonmd5"), ET.Element
-                    )
-                    else ""
-                )
-                quote_message["appattach"]["fileext"] = (
-                    quote_appmsg.find("appattach").find("fileext").text
-                    if isinstance(
-                        quote_appmsg.find("appattach").find("fileext"), ET.Element
-                    )
-                    else ""
-                )
-                quote_message["appattach"]["cdnthumbaeskey"] = (
-                    quote_appmsg.find("appattach").find("cdnthumbaeskey").text
-                    if isinstance(
-                        quote_appmsg.find("appattach").find("cdnthumbaeskey"),
-                        ET.Element,
-                    )
-                    else ""
-                )
-                quote_message["appattach"]["aeskey"] = (
-                    quote_appmsg.find("appattach").find("aeskey").text
-                    if isinstance(
-                        quote_appmsg.find("appattach").find("aeskey"), ET.Element
-                    )
-                    else ""
-                )
+
+                def _appattach_text(tag: str, default_value: str = "") -> str:
+                    if not isinstance(quote_appattach, ET.Element):
+                        return default_value
+                    element = quote_appattach.find(tag)
+                    if not isinstance(element, ET.Element) or element.text is None:
+                        return default_value
+                    return element.text
+
+                def _appattach_int(tag: str, default_value: int = 0) -> int:
+                    raw = _appattach_text(tag, "")
+                    try:
+                        return int(raw) if raw != "" else default_value
+                    except Exception:
+                        return default_value
+
+                quote_message["appattach"]["totallen"] = _appattach_int("totallen", 0)
+                quote_message["appattach"]["attachid"] = _appattach_text("attachid", "")
+                quote_message["appattach"]["emoticonmd5"] = _appattach_text("emoticonmd5", "")
+                quote_message["appattach"]["fileext"] = _appattach_text("fileext", "")
+                quote_message["appattach"]["cdnthumbaeskey"] = _appattach_text("cdnthumbaeskey", "")
+                quote_message["appattach"]["aeskey"] = _appattach_text("aeskey", "")
                 quote_message["extinfo"] = (
                     quote_appmsg.find("extinfo").text
                     if isinstance(quote_appmsg.find("extinfo"), ET.Element)
@@ -1413,6 +1393,15 @@ class XYBot:
                 else:
                     logger.debug("cdnthumbaeskey not found.")
                     quote_message["cdnthumbaeskey"] = ""
+
+            elif quote_message["MsgType"] in (43, 34):  # 视频/语音引用
+                quote_message["NewMsgId"] = refermsg.find("svrid").text
+                quote_message["ToWxid"] = refermsg.find("fromusr").text
+                quote_message["FromWxid"] = refermsg.find("chatusr").text
+                quote_message["Nickname"] = refermsg.find("displayname").text
+                quote_message["MsgSource"] = refermsg.find("msgsource").text
+                quote_message["Content"] = refermsg.find("content").text
+                quote_message["Createtime"] = refermsg.find("createtime").text
 
         except Exception as e:
             logger.error("解析引用消息失败: {}, 完整内容: {}", e, message["Content"])
