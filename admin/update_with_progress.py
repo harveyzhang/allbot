@@ -1,7 +1,7 @@
 """
 @input: os/asyncio/tempfile/shutil/zipfile/io/json/datetime from stdlib; requests; loguru.logger
 @output: update_with_progress(version_info, update_progress_manager, get_github_url, current_dir)
-@position: 管理后台的版本更新执行器，负责下载/备份/更新文件并通过进度管理器推送状态
+@position: 管理后台的版本更新执行器，负责下载/备份/更新文件、校验完整性并在失败时回滚
 @auto-doc: Update header and folder INDEX.md when this file changes
 """
 
@@ -51,6 +51,50 @@ def _merge_copy_tree(
                 continue
 
             shutil.copy2(src_file, dst_file)
+
+
+def _validate_update(root_dir: str) -> list[str]:
+    missing: list[str] = []
+    required_files = [
+        "main.py",
+        os.path.join("adapter", "loader.py"),
+        os.path.join("adapter", "base.py"),
+        os.path.join("bot_core", "orchestrator.py"),
+    ]
+
+    for rel_path in required_files:
+        abs_path = os.path.join(root_dir, rel_path)
+        if not os.path.isfile(abs_path):
+            missing.append(rel_path)
+
+    adapter_dir = os.path.join(root_dir, "adapter")
+    if not os.path.isdir(adapter_dir):
+        missing.append("adapter/")
+    else:
+        entries = [name for name in os.listdir(adapter_dir) if not name.startswith(".")]
+        if not entries:
+            missing.append("adapter/empty")
+
+    return missing
+
+
+def _restore_from_backup(backup_dir: str, root_dir: str, update_items: list[str]):
+    for item in update_items:
+        backup_path = os.path.join(backup_dir, item)
+        if not os.path.exists(backup_path):
+            continue
+
+        dst_path = os.path.join(root_dir, item)
+        if os.path.isdir(dst_path):
+            shutil.rmtree(dst_path)
+        elif os.path.exists(dst_path):
+            os.remove(dst_path)
+
+        if os.path.isdir(backup_path):
+            shutil.copytree(backup_path, dst_path)
+        else:
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            shutil.copy2(backup_path, dst_path)
 
 
 async def update_with_progress(version_info: dict, update_progress_manager, get_github_url, current_dir):
@@ -171,6 +215,18 @@ async def update_with_progress(version_info: dict, update_progress_manager, get_
                         shutil.copy2(new_src_path, dst_path)
                 logger.info(f"已更新: {item}")
         await asyncio.sleep(0.5)
+
+        # 校验更新完整性（关键文件与 adapter 非空）
+        missing = _validate_update(root_dir)
+        if missing:
+            if update_progress_manager:
+                await update_progress_manager.update_progress(
+                    82,
+                    "校验失败",
+                    f"缺少关键文件：{', '.join(missing)}，准备回滚...",
+                )
+            _restore_from_backup(backup_dir, root_dir, update_items)
+            raise Exception(f"更新校验失败，已回滚。缺失: {', '.join(missing)}")
 
         # 阶段7: 设置文件权限 (80%)
         await update_progress_manager.update_progress(80, "设置权限", "正在设置文件执行权限...")

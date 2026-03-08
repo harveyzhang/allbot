@@ -505,7 +505,12 @@
                     })
                 });
                 const data = await response.json();
-                if (data && data.success && data.data && data.data.qrcode_url) {
+                if (data && data.success && data.data && data.data.status === 'online') {
+                    resetQRCode();
+                    document.getElementById('manual-qrcode-container').style.display = 'none';
+                    updateQRCodeStatus(data.message || '已从缓存恢复登录');
+                    showLoginSuccess();
+                } else if (data && data.success && data.data && data.data.qrcode_url) {
                     resetQRCode();
                     document.getElementById('manual-qrcode-container').style.display = 'none';
                     qrcodeUrl = data.data.qrcode_url;

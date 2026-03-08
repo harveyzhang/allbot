@@ -47,6 +47,65 @@ def register_qrcode_routes(app, templates):
             except Exception as e:
                 logger.warning(f"写入状态文件失败 {candidate}: {e}")
 
+    def _robot_stat_path() -> Path:
+        return Path(__file__).resolve().parent.parent.parent / "resource" / "robot_stat.json"
+
+    def _save_robot_stat(wxapi, *, wxid: str = ""):
+        try:
+            auth_keys = getattr(wxapi, "auth_keys", None)
+            if not isinstance(auth_keys, list):
+                auth_keys = []
+            auth_keys = [str(item).strip() for item in auth_keys if str(item).strip()]
+
+            payload = {
+                "wxid": str(wxid or getattr(wxapi, "wxid", "") or "").strip(),
+                "device_name": str(getattr(wxapi, "device_type", "") or "").strip(),
+                "device_id": str(getattr(wxapi, "device_id", "") or "").strip(),
+                "auth_key": str(getattr(wxapi, "auth_key", "") or "").strip(),
+                "auth_keys": auth_keys,
+                "token_key": str(getattr(wxapi, "token_key", "") or "").strip(),
+                "poll_key": str(getattr(wxapi, "poll_key", "") or "").strip(),
+                "display_uuid": str(getattr(wxapi, "display_uuid", "") or "").strip(),
+                "login_tx_id": str(getattr(wxapi, "login_tx_id", "") or "").strip(),
+                "data62": str(getattr(wxapi, "data62", "") or "").strip(),
+                "ticket": str(getattr(wxapi, "ticket", "") or "").strip(),
+                "device_type": str(getattr(wxapi, "device_type", "") or "").strip(),
+            }
+
+            stat_path = _robot_stat_path()
+            stat_path.parent.mkdir(parents=True, exist_ok=True)
+            stat_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"写入 robot_stat.json 失败: {e}")
+
+    async def _save_online_status(wxapi, *, detail: str = "已从 API 缓存恢复登录"):
+        status_data, _ = _load_status()
+        if not isinstance(status_data, dict):
+            status_data = {}
+        status_data.update(
+            {
+                "status": "online",
+                "details": detail,
+                "qrcode_url": "",
+                "uuid": "",
+                "timestamp": time.time(),
+                "login_mode": str(getattr(wxapi, "device_type", "") or "").strip().lower(),
+                "device_type": str(getattr(wxapi, "device_type", "") or "").strip().lower(),
+                "device_id": str(getattr(wxapi, "device_id", "") or "").strip(),
+                "wxid": str(getattr(wxapi, "wxid", "") or "").strip(),
+                "nickname": str(getattr(wxapi, "nickname", "") or "").strip(),
+                "alias": str(getattr(wxapi, "alias", "") or "").strip(),
+                "token_key": str(getattr(wxapi, "token_key", "") or "").strip(),
+                "poll_key": str(getattr(wxapi, "poll_key", "") or "").strip(),
+                "data62": str(getattr(wxapi, "data62", "") or "").strip(),
+                "ticket": str(getattr(wxapi, "ticket", "") or "").strip(),
+                "needs_auth_key": False,
+            }
+        )
+        _save_status(status_data)
+        _save_robot_stat(wxapi, wxid=status_data.get("wxid", ""))
+        return status_data
+
     @app.route('/qrcode')
     async def page_qrcode(request: Request):
         """二维码页面，不需要认证"""
@@ -227,6 +286,7 @@ def register_qrcode_routes(app, templates):
                 }
             )
             _save_status(status_data)
+            _save_robot_stat(wxapi)
 
             return {
                 "success": True,
@@ -280,6 +340,23 @@ def register_qrcode_routes(app, templates):
             if qrcode_proxy:
                 setattr(wxapi, "login_qrcode_proxy", qrcode_proxy)
 
+            current_wxid = str(getattr(wxapi, "wxid", "") or "").strip() or None
+            if await wxapi.is_logged_in(current_wxid):
+                if hasattr(wxapi, "get_profile"):
+                    await wxapi.get_profile()
+                status_data = await _save_online_status(wxapi)
+                return {
+                    "success": True,
+                    "data": {
+                        "status": "online",
+                        "wxid": status_data.get("wxid", ""),
+                        "nickname": status_data.get("nickname", ""),
+                        "alias": status_data.get("alias", ""),
+                        "login_mode": status_data.get("login_mode", ""),
+                    },
+                    "message": "检测到当前已在线，已直接从 API 缓存恢复登录状态",
+                }
+
             device_id = str(getattr(wxapi, "device_id", "") or "").strip()
             if not device_id and hasattr(wxapi, "create_device_id"):
                 device_id = str(wxapi.create_device_id()).strip()
@@ -317,6 +394,7 @@ def register_qrcode_routes(app, templates):
                 }
             )
             _save_status(status_data)
+            _save_robot_stat(wxapi)
 
             return {
                 "success": True,
