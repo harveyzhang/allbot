@@ -1,6 +1,6 @@
 # Protocol869Demo 插件
 
-869 客户端能力示例插件（教学/联调用途），演示插件如何直接调用 869 专属方法。
+869 客户端能力示例插件（教学/联调用途），演示管理员插件如何直接调用 869 专属方法。
 
 ## 启用
 
@@ -31,4 +31,5 @@ enable = true
 ## 注意
 
 - 仅当 `bot.protocol_version == "869"` 时可用。
+- 仅 `main_config.toml` 中 `XYBot.admins` 配置的全局管理员可使用。
 - 撤回接口需要 `client_msg_id/create_time/new_msg_id` 三元组，本插件只保证撤回“自身发送并记录过”的消息。

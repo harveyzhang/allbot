@@ -1,12 +1,13 @@
 """
 @input: WechatAPIClient（运行时可能为 Client869）、插件消息字典（text/quote/emoji）
-@output: Protocol869Demo 插件：提供一组 869 专属能力演示命令（拍一拍/撤回/二维码/标签/群信息/动态调用）
-@position: 示例插件，用于展示“插件如何调用 869 专属方法与参数”
+@output: Protocol869Demo 插件：仅向全局管理员提供一组 869 专属能力演示命令（拍一拍/撤回/二维码/标签/群信息/动态调用）
+@position: 示例插件，用于展示“管理员插件如何调用 869 专属方法与参数”
 @auto-doc: Update header and folder INDEX.md when this file changes
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import time
@@ -68,11 +69,12 @@ class RevokeToken:
 class Protocol869Demo(PluginBase):
     description = "869 能力演示：拍一拍/撤回/二维码/群信息/动态调用等（仅 869 客户端可用）"
     author = "allbot"
-    version = "1.0.0"
+    version = "1.0.1"
 
     def __init__(self):
         super().__init__()
         self.enable = True
+        self.admins = self._load_admins()
         self._last_sent: Dict[str, RevokeToken] = {}
         self._pending_emoji_download: Dict[str, float] = {}
         try:
@@ -96,6 +98,28 @@ class Protocol869Demo(PluginBase):
             except Exception:
                 return None
         return None
+
+    @staticmethod
+    def _load_admins() -> set[str]:
+        try:
+            main_config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "main_config.toml"))
+            with open(main_config_path, "rb") as file:
+                main_cfg = tomllib.load(file)
+            admins_value = main_cfg.get("XYBot", {}).get("admins", [])
+            if isinstance(admins_value, list):
+                return {str(item).strip() for item in admins_value if str(item).strip()}
+            if isinstance(admins_value, str):
+                parsed = ast.literal_eval(admins_value)
+                if isinstance(parsed, list):
+                    return {str(item).strip() for item in parsed if str(item).strip()}
+            return set()
+        except Exception as exc:
+            logger.warning("[Protocol869Demo] 读取全局管理员失败: {}", exc)
+            return set()
+
+    def _is_admin(self, message: Dict[str, Any]) -> bool:
+        sender = _sender_wxid(message)
+        return bool(sender and sender in self.admins)
 
     def _store_last_sent(self, conv: str, to_wxid: str, token: Optional[Tuple[int, int, int]]):
         if not token:
@@ -138,6 +162,10 @@ class Protocol869Demo(PluginBase):
 
         conv = _conversation_wxid(message)
         to_wxid = conv
+
+        if not self._is_admin(message):
+            await self._reply_text(bot, to_wxid, "仅全局管理员可使用 869 测试插件。")
+            return False
 
         if not _is_869(bot):
             await self._reply_text(bot, to_wxid, "当前不是 869 客户端：这些命令不可用。")
@@ -363,6 +391,10 @@ class Protocol869Demo(PluginBase):
         conv = _conversation_wxid(message)
         to_wxid = conv
 
+        if not self._is_admin(message):
+            await self._reply_text(bot, to_wxid, "仅全局管理员可使用 869 测试插件。")
+            return False
+
         if not _is_869(bot):
             await self._reply_text(bot, to_wxid, "当前不是 869 客户端：撤回不可用。")
             return False
@@ -409,6 +441,10 @@ class Protocol869Demo(PluginBase):
 
         self._pending_emoji_download.pop(pending_key, None)
         to_wxid = conv
+
+        if not self._is_admin(message):
+            await self._reply_text(bot, to_wxid, "仅全局管理员可使用 869 测试插件。")
+            return False
 
         if not _is_869(bot):
             await self._reply_text(bot, to_wxid, "当前不是 869 客户端：download_emoji 不可用。")
