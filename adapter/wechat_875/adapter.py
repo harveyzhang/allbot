@@ -19,6 +19,8 @@ import asyncio
 import base64
 import hashlib
 import json
+import html
+import re
 import threading
 import time
 from collections import deque
@@ -26,6 +28,81 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlsplit
+
+# ---- 引用媒体资源索引：svr_id -> 被引用原媒体的内层 XML ----
+# 实证：875 把「引用」与「被引用原媒体」拆成两条消息；原媒体（更早到达，
+# 时序 4/4 先到 146~991s）带 xml_fields(aeskey/cdnmidimgurl/...)。引用消息
+# 的 app.reference.svr_id 正好等于原媒体的 new_msg_id/svr_id/id。从已落盘的
+# wechat875_raw.jsonl 建索引，翻译引用时把资源 XML 填进 refermsg.content，
+# 框架 type=3/43 分支 re.search 出 aeskey/cdn，MuseBridge 才能下载落盘。
+_W875_MEDIA_XML_INDEX = None
+
+
+def w875_make_media_inner_xml(raw):
+    xf = raw.get("xml_fields") if isinstance(raw.get("xml_fields"), dict) else {}
+    if not xf:
+        return ""
+    has_cdn = any(xf.get(k) for k in (
+        "cdnmidimgurl", "cdnbigimgurl", "cdnvideourl", "cdnthumburl", "cdnattachurl"))
+    if not (xf.get("aeskey") and has_cdn):
+        return ""
+    tag = "videomsg" if (xf.get("cdnvideourl") or xf.get("playlength")) else "img"
+    attrs = " ".join(
+        '%s="%s"' % (k, v)
+        for k, v in xf.items()
+        if v is not None and isinstance(k, str) and k.isalnum()
+    )
+    return "<msg><%s %s /></msg>" % (tag, attrs)
+
+
+def w875_media_index_path():
+    return Path(__file__).resolve().parent / "records" / "wechat875_raw.jsonl"
+
+
+def w875_load_media_index():
+    global _W875_MEDIA_XML_INDEX
+    idx = {}
+    try:
+        with open(w875_media_index_path(), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                    raw = rec.get("raw") or {}
+                    inner = w875_make_media_inner_xml(raw)
+                    if not inner:
+                        continue
+                    for k in (str(raw.get("new_msg_id") or ""),
+                              str(raw.get("svr_id") or ""), str(raw.get("id") or "")):
+                        if k:
+                            idx[k] = inner
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    _W875_MEDIA_XML_INDEX = idx
+    return idx
+
+
+def w875_index_media(raw):
+    """落盘新原媒体消息时增量入索引（未回灌过就交给首次 lookup 全量扫）。"""
+    global _W875_MEDIA_XML_INDEX
+    if _W875_MEDIA_XML_INDEX is None:
+        return
+    inner = w875_make_media_inner_xml(raw)
+    if not inner:
+        return
+    for k in (str(raw.get("new_msg_id") or ""),
+              str(raw.get("svr_id") or ""), str(raw.get("id") or "")):
+        if k:
+            _W875_MEDIA_XML_INDEX[k] = inner
+
+
+def w875_lookup_media(svr_id):
+    global _W875_MEDIA_XML_INDEX
+    if _W875_MEDIA_XML_INDEX is None:
+        w875_load_media_index()
+    return (_W875_MEDIA_XML_INDEX or {}).get(str(svr_id), "")
+
 
 try:  # redis 为运行必需依赖；延迟到实际启动时校验，便于 enable=false 安全构造
     import redis
@@ -85,10 +162,18 @@ class Wechat875Adapter:
         )
 
         self.platform = str(self.wx_cfg.get("platform") or "wechat875").lower()
-        self.platform_aliases: Set[str] = {self.platform}
+        # 入站消息注入的 platform 用的是 adapter_name（如 "wechat_875"，
+        # 见 _normalize_to_standard），而 [wechat875].platform 常配成 "wechat875"。
+        # 两者不一致时 _reply_worker 会因别名不匹配把回复直接丢弃（debug 级日志，
+        # INFO 下看不到）→ 875 从不真正出站。把 adapter_name 一并纳入别名集。
+        self.platform_aliases: Set[str] = {
+            self.platform,
+            str(self.adapter_name or "").lower(),
+        }
         for alias in self.wx_cfg.get("aliases") or []:
             if alias:
                 self.platform_aliases.add(str(alias).lower())
+        self.platform_aliases.discard("")
 
         self.reply_queue = str(adapter_cfg.get("replyQueue") or "allbot_reply:wechat875")
         self.reply_max_retry = max(1, int(adapter_cfg.get("replyMaxRetry", 3)))
@@ -123,6 +208,8 @@ class Wechat875Adapter:
         # 登录面板状态：按账户 key 维护拉码/扫码会话
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._login_sessions: Dict[str, Dict[str, Any]] = {}
+        self._verify_qr_cache: Dict[str, str] = {}  # verification_url -> base64 PNG（只留当前）
+        self._heartbeat_kick_at: Dict[str, float] = {}  # wxid -> 上次补触发 AutoHeartBeat 的时间
         self._login_lock = threading.RLock()
         self._login_poll_interval = max(1.0, float(self.wx_cfg.get("loginPollIntervalSec", 2)))
         self._login_ttl = max(60.0, float(self.wx_cfg.get("loginQrTtlSec", 240)))
@@ -495,6 +582,10 @@ class Wechat875Adapter:
                     self.redis_queue,
                     json.dumps(normalized, ensure_ascii=False),
                 )
+                # 无条件落原始包：绕开框架事件链（引用消息在 parse 阶段就 return、
+                # 不 emit 事件，事件订阅式监控永远看不到真实引用结构），先把真实
+                # 结构攒到独立 jsonl，攒够样本再谈「翻译成 type=57 + 识别被引用正文」。
+                self._record_raw(account, raw, normalized)
                 # INFO 级：确保默认 logLevel=INFO 下能看到真实入站消息（便于判断「有没有消息」）
                 self._logger.info(
                     f"入站消息 platform={self.platform} account={account.wxid} "
@@ -503,6 +594,31 @@ class Wechat875Adapter:
                 )
             except Exception as exc:
                 self._logger.error(f"消息入队失败: {exc}")
+
+    def _record_raw(self, account, raw: Dict[str, Any], normalized: Dict[str, Any]) -> None:
+        """无条件把 875 入站原始包落盘（不依赖框架事件 emit）。
+
+        引用消息（MsgType=49 + 纯显示文本）在框架 process_xml_message 的
+        ET.fromstring 阶段就 return，不 emit 任何事件，事件订阅式监控永远
+        看不到真实引用结构。这里在入队口直接写独立 jsonl，攒样本用。
+        """
+        try:
+            rec = {
+                "ts": time.time(),
+                "platform": self.platform,
+                "account": str(getattr(account, "wxid", "") or ""),
+                "msg_id": str(normalized.get("MsgId") or ""),
+                "msg_type": normalized.get("MsgType"),
+                "content": str(normalized.get("Content", {}).get("string", ""))[:200],
+                "raw": raw,
+            }
+            path = Path(__file__).resolve().parent / "records" / "wechat875_raw.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+            w875_index_media(raw)
+        except Exception as exc:
+            self._logger.warning(f"原始包落盘失败: {exc}")
 
     def _collect_messages(
         self,
@@ -521,9 +637,17 @@ class Wechat875Adapter:
             return
 
         markers = ("msgId", "MsgId", "newMsgId", "NewMsgId", "msgType", "MsgType")
-        if any(key in obj for key in markers) and (
+        v1_hit = any(key in obj for key in markers) and (
             "fromWxid" in obj or "FromUserName" in obj or "content" in obj or "Content" in obj
-        ):
+        )
+        # v2 (wechatpad.message.v2, snake_case)：协议会把本账号发出的 outgoing
+        # 消息也回推。不同协议/适配器各自推、各自入队、各自触发，这里一律接住，
+        # 不在适配器层判断「是不是自己发的」去拦截（reply_context 等无 sender_id
+        # 的嵌套结构不会命中，避免重复收集）。
+        v2_hit = "sender_id" in obj and (
+            "content" in obj or "new_msg_id" in obj or "id" in obj or "direction" in obj
+        )
+        if v1_hit or v2_hit:
             out.append(obj)
             return
 
@@ -558,6 +682,10 @@ class Wechat875Adapter:
         is_group = bool(normalized.get("is_group")) or from_wxid.endswith("@chatroom")
         account_wxid = str(account.wxid or account.client.wxid or "").strip()
 
+        # 透明转发：适配器不做媒体分类/过滤/结构还原。
+        # 普通资源消息、引用消息一律原样交给框架（MsgType/Content 用协议真实值），
+        # 完整原始包放 Extra.wechat875.raw —— 真实字段结构由监控插件攒样本观察，
+        # 不在适配器层凭猜测拼 XML / 丢消息。
         # 跳过自己发出的回显消息（手机/协议端同步回来的本人消息）
         if self.skip_self_message and not is_group and account_wxid and from_wxid == account_wxid:
             return None
@@ -588,8 +716,23 @@ class Wechat875Adapter:
 
         msg_type = self._coerce_int(normalized.get("msg_type"), 1)
         bot_identity = account_wxid or to_wxid or ""
+        # 不再基于 reply_context 构造 Quote。
+        # 实证：reply_context 是「本条消息自身元数据」（svr_id 194/194 等于本条 id、
+        # msg_type=本条类型、quote_content=本条正文），不是「被引用原文」。
+        # 用它构造会把每条普通文本都塞一个内容为自身正文的伪 Quote，污染下游
+        # MuseBridge _build_quote_context 拼进 AI query。真·引用被引用原文目前
+        # 875 原始包里尚未证实有暴露（框架对 MsgType=49+纯文本 parse 阶段就 return，
+        # 历史从未记录到真实引用包）。等入队口无条件落 raw 攒到样本后再按真实结构补。
+        quote = {}
+        # 私聊回复目标修正（875 是框架全局主账号之外的第二账号）：
+        # 框架 process_text_message 私聊分支有 `if FromWxid == self.wxid: FromWxid = ToWxid`，
+        # 其中 self.wxid 是全局主账号(869号)。当 869号 给 875号 发私聊时，对方恰好 == self.wxid，
+        # 被框架误判成「自己发的消息」，把 FromWxid 改成 ToWxid(原=875自己号) → 回复发回给自己。
+        # 不改框架：只在 875 侧把私聊 ToWxid 指向会话对端(channel_id=对方)，
+        # 于是无论是否触发改写，FromWxid 最终都指向对方，回复目标始终正确。
+        to_wxid_value = channel_id if not is_group else bot_identity
 
-        return {
+        std = {
             "Platform": self.platform,
             "ChannelId": channel_id,
             "UserId": user_id,
@@ -601,10 +744,11 @@ class Wechat875Adapter:
             "MsgSource": "<msgsource></msgsource>",
             "IsGroup": is_group,
             "FromWxid": channel_id,
-            "ToWxid": bot_identity,
+            "ToWxid": to_wxid_value,
             "FromUserName": {"string": channel_id},
-            "ToUserName": {"string": bot_identity},
+            "ToUserName": {"string": to_wxid_value},
             "SenderWxid": sender_wxid,
+            **({"Quote": quote} if quote else {}),
             "Status": 3,
             "ImgStatus": 1,
             "NewMsgId": msg_id,
@@ -620,11 +764,101 @@ class Wechat875Adapter:
             },
         }
 
+        # ===== 协议翻译：v2 结构化资源 → 框架标准媒体 XML =====
+        # 875 v2 把资源定位符放在 image/video/emoji 子对象 + xml_fields（摊平属性），
+        # content 只是「收到一张图片」这类显示文本。框架 process_image_message /
+        # process_video_message 从标准媒体 XML 的属性里取 aeskey/cdn 去下载。
+        # 这里按真实攒到的字段把 xml_fields 原样翻成 <msg><img .../></msg> 等
+        # （全量属性、不猜、不丢），完整原始包仍留在 Extra.wechat875.raw 供观察。
+        if isinstance(raw, dict):
+            _xf = raw.get("xml_fields") if isinstance(raw.get("xml_fields"), dict) else {}
+            _tag = _mtype = None
+            if isinstance(raw.get("image"), dict) and raw["image"]:
+                _tag, _mtype = "img", 3
+            elif isinstance(raw.get("video"), dict) and raw["video"]:
+                _tag, _mtype = "videomsg", 43
+            elif isinstance(raw.get("emoji"), dict) and raw["emoji"]:
+                _tag, _mtype = "emoji", 47
+            if not _tag and _xf:
+                _k = str(raw.get("kind") or "").lower()
+                _t = raw.get("type")
+                if _k == "image" or _t == 3:
+                    _tag, _mtype = "img", 3
+                elif _k == "video" or _t == 43:
+                    _tag, _mtype = "videomsg", 43
+                elif _k == "emoji" or _t == 47:
+                    _tag, _mtype = "emoji", 47
+            if _tag and _xf:
+                _attrs = " ".join(
+                    f'{_kk}="{html.escape(str(_vv), quote=True)}"'
+                    for _kk, _vv in _xf.items() if _vv is not None
+                )
+                std["Content"] = {"string": f"<msg><{_tag} {_attrs} /></msg>"}
+                std["MsgType"] = _mtype
+                # 下载所需的原始结构化参数一并透出（endpoint/msg_id/section/file_no…）
+                std["Extra"]["wechat875"]["resources"] = {
+                    _k2: raw.get(_k2) for _k2 in ("image", "video", "emoji", "xml_fields")
+                    if isinstance(raw.get(_k2), dict) and raw.get(_k2)
+                }
+
+        # ===== 真·引用翻译：app.reference → 框架标准 type=57 引用 XML =====
+        # 实证（攒到的真实原始包）：875 把「被引用内容」放在 app.reference，
+        # 不在 Content、也不在 XML refermsg。字段 msg_type / svr_id / new_msg_id /
+        # from_user_id / chat_user_id / display_name / content（文本引用才有，
+        # 图片引用 content 为空）。框架 process_xml_message → type_value==57 →
+        # process_quote_message 从 <appmsg><title>本条正文</title><refermsg>… 构建
+        # message["Quote"] 并 emit("quote_message")。故必须给完整合法 XML 让框架
+        # 原生接管；否则 Content=纯文本会在 ET.fromstring 处 return，下游全看不到。
+        if isinstance(raw, dict):
+            _app = raw.get("app") if isinstance(raw.get("app"), dict) else {}
+            _ref = _app.get("reference") if isinstance(_app.get("reference"), dict) else {}
+            if _ref:
+                def _es(v):
+                    # 空值给空格：框架多处直接 refermsg.find(x).text 不判空，
+                    # 节点无文本时 .text 为 None 会连锁报错。
+                    t = "" if v is None else str(v)
+                    return html.escape(t, quote=True) if t else " "
+                _ref_type = str(_ref.get("msg_type") or 1)
+                _svrid = _ref.get("svr_id") or _ref.get("new_msg_id") or ""
+                _inner = _ref.get("content")
+                if not _inner:
+                    # 被引用媒体：app.reference 只给 svr_id，资源定位符在「另一条
+                    # 先到的原媒体消息」的 xml_fields（实证 4/4 可按 svr_id 关联）。
+                    # 查落盘索引拼 <msg><img .../></msg> 填进 refermsg.content，
+                    # 框架/MuseBridge 才拿得到 aeskey/cdn 去下载落盘。
+                    _svr = str(_ref.get("svr_id") or _ref.get("new_msg_id") or "")
+                    _inner = w875_lookup_media(_svr) or "<msg></msg>"
+                _title = content.split(":\n", 1)[-1] if ":\n" in content else content
+                _xml = (
+                    '<?xml version="1.0"?><msg><appmsg appid="" sdkver="0">'
+                    f'<title>{_es(_title)}</title><type>57</type><refermsg>'
+                    f'<type>{_es(_ref_type)}</type>'
+                    f'<svrid>{_es(_svrid)}</svrid>'
+                    f'<fromusr>{_es(_ref.get("from_user_id"))}</fromusr>'
+                    f'<chatusr>{_es(_ref.get("chat_user_id"))}</chatusr>'
+                    f'<displayname>{_es(_ref.get("display_name"))}</displayname>'
+                    '<msgsource> </msgsource>'
+                    f'<content>{_es(_inner)}</content>'
+                    f'<createtime>{_es(normalized.get("timestamp") or raw.get("created_at") or "")}</createtime>'
+                    '</refermsg></appmsg></msg>'
+                )
+                std["Content"] = {"string": _xml}
+                std["MsgType"] = 49
+                std["Extra"]["wechat875"]["reference"] = {
+                    _k: _ref.get(_k) for _k in
+                    ("msg_type", "svr_id", "new_msg_id", "from_user_id",
+                     "chat_user_id", "display_name", "content")
+                }
+
+        return std
+
     @staticmethod
     def _resolve_group_sender_wxid(raw: Dict[str, Any], group_wxid: str) -> str:
         for key in (
             "senderWxid",
             "SenderWxid",
+            "sender_id",   # v2 (wechatpad.message.v2)
+            "from_user_id",
             "actualSender",
             "ActualSender",
             "memberWxid",
@@ -1207,6 +1441,15 @@ class Wechat875Adapter:
             session = dict(self._login_sessions.get(key) or {})
         # 与 list_accounts 一致：真实在线 = 协议登录态 AND 本适配器 WS 链路存活
         connected = bool(target.online and target.ws_connected)
+        vurl = session.get("verification_url") or ""
+        vqr = str(session.get("verification_qrcode_protocol") or "")
+        if vurl and not vqr:
+            # 协议没给二维码才本地生成；同一 url 只编码一次
+            vqr = self._verify_qr_cache.get(vurl) or ""
+            if not vqr:
+                vqr = self._qrcode_png(vurl)
+                if vqr:
+                    self._verify_qr_cache = {vurl: vqr}
         return {
             "success": True,
             "account": key,
@@ -1217,6 +1460,14 @@ class Wechat875Adapter:
             "login_link": session.get("qr_content") or "",
             "wxid": key,
             "last_error": session.get("last_error") or "",
+            # Q2：CheckQR 动态验证地址（含卡密/challenge，仅已鉴权后台会话可见）
+            "requires_face_verification": bool(session.get("requires_face_verification")),
+            "verification_url": vurl,
+            # 验证地址二维码：第二台手机扫码即可在微信内打开，免手输长链接
+            "verification_qrcode": vqr,
+            "verification_qrcode_content_type": "image/png" if vqr else "",
+            "face_status": session.get("face_status") or "",
+            "challenge_id": session.get("challenge_id") or "",
         }
 
     def login_qrcode(self, account: str = "") -> Dict[str, Any]:
@@ -1261,8 +1512,48 @@ class Wechat875Adapter:
             "ws_connected": sum(1 for a in self._accounts if a.ws_connected),
         }
 
+    @staticmethod
+    def _extract_face_verification(data: Dict[str, Any], raw: Any) -> Dict[str, Any]:
+        """从 CheckQR 响应抽取人脸/滑块验证字段（Q2 数据通道）。
+
+        官方教程：requires_face_verification=true 且 ready=true 时取最新
+        verification_url（每次登录 challenge_id 不同、会过期）。字段可能落在
+        Data 或顶层，故两层都查。无验证需求时返回空 dict。
+        """
+        top = raw if isinstance(raw, dict) else {}
+        def pick(*names):
+            for src in (data, top):
+                for n in names:
+                    v = src.get(n)
+                    if v not in (None, "", False):
+                        return v
+            return None
+        url = pick("verification_url", "verify_url", "face_verify_url")
+        needed = bool(data.get("requires_face_verification") or top.get("requires_face_verification")
+                      or data.get("ready") or top.get("ready"))
+        if not url and not needed:
+            return {}
+        out: Dict[str, Any] = {}
+        if url:
+            out["verification_url"] = str(url)
+        # 协议 CheckQR 自带验证二维码（data URI），优先用官方的，免自己编码
+        q = pick("verification_qr_base64", "verification_qrcode")
+        if q:
+            uri = str(q)
+            out["verification_qrcode_protocol"] = uri.split(",", 1)[-1] if "," in uri else uri
+        out["requires_face_verification"] = bool(url or needed)
+        cid = pick("challenge_id", "challengeId")
+        if cid:
+            out["challenge_id"] = str(cid)
+        state = data.get("status") or top.get("status")
+        if state:
+            out["face_status"] = str(state)
+        return out
+
     async def _poll_login_once(self) -> None:
-        """轮询所有待扫码账户的 CheckLoginStatus，成功后更新在线状态。"""
+        """轮询所有待扫码账户的 875 CheckQR（POST），成功后接管会话。"""
+        # 875 CheckQR 状态码（见 wx875client/protocol875.py QR_STATUS_*）
+        WAITING, SCANNED, EXPIRED, CANCELLED = 0, 1, 3, 4
         with self._login_lock:
             pending = [
                 (key, dict(session))
@@ -1275,14 +1566,20 @@ class Wechat875Adapter:
                 continue
             uuid = str(session.get("uuid") or "")
             try:
-                checked, data = await target.client.check_login_uuid(uuid, target.device_id or "")
+                # 875 专用：POST /api/Login/CheckQR + query uuid + X-Access-Token。
+                # 旧的 check_login_uuid 是 869 的 GET，875 下打 404 HTML 被静默吞掉，
+                # 状态机永远停 wait —— 这里必须切到 check_qr_875。
+                result = await target.client.check_qr_875(uuid)
             except Exception as exc:
                 with self._login_lock:
                     self._login_sessions.setdefault(key, {})["last_error"] = str(exc)
                 continue
-            if checked:
+            if not isinstance(result, dict):
+                result = {}
+
+            if result.get("ok"):
                 status = await target.client.get_login_status_875()
-                real_wxid = str(status.get("wxid") or "") or key
+                real_wxid = str(result.get("wxid") or status.get("wxid") or "") or key
                 target.online = True
                 target.wxid = real_wxid
                 target.client.wxid = real_wxid
@@ -1301,24 +1598,46 @@ class Wechat875Adapter:
                 self._logger.success(f"875 账户 {key} 扫码登录成功")
                 continue
 
-            qr_status = "wait"
-            if isinstance(data, dict):
-                raw = data.get("Data") if isinstance(data.get("Data"), dict) else data
-                state = raw.get("loginState") or raw.get("LoginState") or raw.get("state") or raw.get("State") or raw.get("Status") or raw.get("status")
-                text = str(raw.get("Text") or raw.get("text") or raw.get("loginErrMsg") or raw.get("ErrMsg") or "")
-                try:
-                    state_i = int(state)
-                except Exception:
-                    state_i = None
-                if state_i == 1 or any(t in text.lower() for t in ("已扫描", "scan")):
-                    qr_status = "scaned"
-                elif state_i in (2, 200, 201):
-                    qr_status = "confirmed"
-                elif any(t in text.lower() for t in ("过期", "expired", "失效")):
-                    qr_status = "expired"
+            # CheckQR 的 Data.status 是字符串（实测 waiting_scan；官方还有
+            # awaiting_open/awaiting_face/awaiting_slider/resuming_login/completed），
+            # 不是数字常量。字符串优先、数字兼容，避免状态机空转。
+            raw = result.get("raw")
+            data = raw.get("Data") if isinstance(raw, dict) else {}
+            data = data if isinstance(data, dict) else {}
+            raw_status = data.get("status") or result.get("status")
+            st = str(raw_status or "").strip().lower()
+            text = str(result.get("message") or data.get("message") or "")
+
+            if st in ("waiting_scan", "waiting", "0"):
+                qr_status = "wait"
+            elif st in ("scanned", "awaiting_confirm", "1") or any(t in text.lower() for t in ("已扫描", "scan")):
+                qr_status = "scaned"
+            elif st in ("expired", "cancelled", "canceled", "3", "4") or any(t in text.lower() for t in ("过期", "expired", "失效", "cancel")):
+                qr_status = "expired"
+            # 验证各态（awaiting_open/awaiting_face/awaiting_slider/
+            # resuming_login/preparing_pad_session）保持 scaned，不误判过期；
+            # completed 交给上方 ok 分支接管。
+            elif any(k in st for k in ("awaiting", "resuming", "preparing", "face", "slider")):
+                qr_status = "scaned"
+            else:
+                qr_status = "wait"
+
+            # Q2：把 CheckQR 动态返回的验证字段透传到 session，供 login_status 下发。
+            # verification_url 每次登录不同且会过期，绝不能拼 PadFacePage 静态地址。
+            face = self._extract_face_verification(data, raw)
+            last_error = text if not face and text and st not in ("waiting_scan", "waiting", "") else ""
             with self._login_lock:
                 current = self._login_sessions.get(key) or {}
                 current.update({"qr_status": qr_status})
+                if face:
+                    current.update(face)
+                    current["last_error"] = ""  # 清掉旧的「授权码已停用」残留
+                else:
+                    for k in ("verification_url", "requires_face_verification",
+                              "challenge_id", "verification_qrcode_protocol", "face_status"):
+                        current.pop(k, None)
+                if last_error:
+                    current["last_error"] = last_error
                 if qr_status == "expired":
                     current["uuid"] = ""
                     current["qr_content"] = ""
@@ -1369,13 +1688,38 @@ class Wechat875Adapter:
                 # 真活判据：心跳运行态（live）优先；live 缺失时退回 online 字段
                 now = bool(status.get("live", status.get("online")))
                 hb = status.get("heartbeat") or {}
+                # 死锁修复：凭证已确立(GetLoginStatus.ok=True)但心跳从未起跳过时，
+                # 协议【不会】自动拉起心跳（实测 auto_authenticated 态 CheckQR 恒返回
+                # "登录处理中"、running=False 会永久卡住）。此时补触发一次 AutoHeartBeat，
+                # 否则 live 判据恒为 False、CheckQR 的 ok 分支也永不触发 → 双重死锁。
+                # 节流 120s/账户，避免撞 TwiceAutoAuth 频率保护；成功后 hb.running=True
+                # 自然不再触发（幂等）。
+                try:
+                    hb_last_ok = int(hb.get("lastSuccessAt") or 0)
+                    hb_fails = int(hb.get("consecutiveFailures") or 0)
+                except (TypeError, ValueError):
+                    hb_last_ok, hb_fails = 0, 0
+                kick_key = str(account.wxid or id(account))
+                last_kick = self._heartbeat_kick_at.get(kick_key, 0)
+                need_kick = (
+                    bool(status.get("online")) and not hb.get("running")
+                    and hb_last_ok == 0 and hb_fails == 0
+                    and (time.time() - last_kick) >= 120
+                )
+                if need_kick:
+                    self._heartbeat_kick_at[kick_key] = time.time()
+                    try:
+                        await account.client.start_auto_heartbeat_875()
+                        self._logger.info(
+                            f"账户 {account.wxid} 凭证已确立但心跳未起，补触发 AutoHeartBeat"
+                        )
+                    except Exception as kick_exc:
+                        self._logger.debug(f"补触发 AutoHeartBeat 失败: {kick_exc}")
+
                 if was and not now:
-                    # 只做真活判断：协议侧自带自动心跳+自动二次登录（免扫码拉起），
-                    # 适配器不重复唤醒，避免撞 TwiceAutoAuth 频率保护。
                     self._logger.warning(
                         f"账户 {account.wxid} 链路已断（缓存在线，心跳失效 "
-                        f"running={hb.get('running')} 失败={hb.get('consecutiveFailures')}），"
-                        f"等待协议侧自动恢复"
+                        f"running={hb.get('running')} 失败={hb.get('consecutiveFailures')}）"
                     )
                     account.online = False
                 elif not was and now:

@@ -128,6 +128,16 @@ ROUTE_MAP_875: Dict[str, str] = {
     "/tools/SetProxy": "/api/Tools/setproxy",
     # ---------- 运行时（875 特有）----------
     "/runtime/WebSocketTicket": "/api/Runtime/WebSocketTicket",
+    # ---- swagger 对齐补充映射（原 fallback 补 /api 前缀会 404/链接不存在）----
+    # 依据 swagger.json 精确路径；WebSocketTicket / DownloadEmojiGif 在 swagger 未收录，
+    # 保留 fallback（文档缺失，无从对齐），已在 head 注释标注。
+    "/admin/GenAuthKey3": "/api/Admin/GenAuthKey",
+    "/message/CdnDownloadImage": "/api/Tools/CdnDownloadImage",
+    "/group/SetGetChatRoomInfoDetail": "/api/Group/GetChatRoomInfoDetail",
+    "/label/GetContactLabelList": "/api/Label/GetList",
+    "/user/SetProxy": "/api/Tools/setproxy",
+    "/other/UpdateStepNumber": "/api/Tools/SetStep",
+    "/pay/GetRedEnvelopesDetail": "/api/TenPay/Qrydetailwxhb",
 }
 
 # 875 认证：卡密走 query authcode + header X-Access-Token
@@ -162,52 +172,125 @@ def resolve_875_path(path: str) -> str:
 # 请求体转换：869 嵌套结构 → 875 扁平结构
 # ---------------------------------------------------------------------------
 
-def _first_msg_item(body: Dict[str, Any]) -> Dict[str, Any]:
-    """从 869 的 MsgItem 数组中取出第一项。"""
-    items = body.get("MsgItem")
-    if isinstance(items, list) and items:
-        first = items[0]
-        if isinstance(first, dict):
-            return first
-    return {}
+import base64 as _b64  # 局部别名，避免污染模块顶部
+
+_LIST_KEYS = (
+    "MsgItem", "AppList", "EmojiList", "ForwardImageList",
+    "ForwardVideoList", "ForwardFileList", "List", "list",
+)
+
+
+def _flat_item(body: Dict[str, Any]) -> Dict[str, Any]:
+    """从 869/兼容客户端的多种结构里取出「第一项 + 顶层字段」的合并字典。
+
+    客户端各 send 方法结构并不统一：文本用 MsgItem[]，app/link 用 AppList[]，
+    emoji 用 EmojiList[]，CDN 转发用 ForwardXxxList[]，语音/视频/名片是扁平
+    结构（ToUserName/VoiceData/VideoData/CardWxId…）。旧实现只认 MsgItem，
+    导致其它类型转换出全空 body —— 这是「发送 875 全类型」失败的真正原因。
+    """
+    item: Dict[str, Any] = {}
+    for key in _LIST_KEYS:
+        arr = body.get(key)
+        if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+            item = dict(arr[0])
+            break
+    # 顶层字段兜底（扁平结构），列表内字段优先
+    for k, v in body.items():
+        if k in _LIST_KEYS:
+            continue
+        item.setdefault(k, v)
+    return item
+
+
+def _g(item: Dict[str, Any], *names, default=""):
+    """按多个候选字段名取值（客户端字段别名兼容）。"""
+    for n in names:
+        v = item.get(n)
+        if v not in (None, "", [], {}):
+            return v
+    return default
+
+
+def _b64_str(v) -> str:
+    """把 base64 字符串 / bytes / 字节数组(list[int]) 统一成 base64 字符串。"""
+    if v in (None, "", [], {}):
+        return ""
+    if isinstance(v, (bytes, bytearray)):
+        return _b64.b64encode(bytes(v)).decode("ascii")
+    if isinstance(v, (list, tuple)):
+        try:
+            return _b64.b64encode(bytes(int(x) & 0xFF for x in v)).decode("ascii")
+        except Exception:
+            return ""
+    return str(v)
 
 
 def to_875_body(path: str, body: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """把 869 请求体转换为 875 请求体（按官方 Swagger 字段逐一定义）。
+    """把 869/兼容客户端请求体转换为 875 请求体（按官方 Swagger 字段）。
 
-    官方字段依据：/home/sxkiss/875/source/app/swagger/swagger.json
-    注意 875 用扁平参数（ToWxid/Content/Base64/Xml/Type/Md5/...），
-    与 869 的 MsgItem 嵌套结构不同，必须在发请求前转换。
+    官方字段依据 swagger.json 各接口 schema 的 example：
+      SendTxt{ToWxid,Content,At,Type} UploadImg{ToWxid,Base64}
+      SendVoice{ToWxid,Base64,Type,VoiceTime} SendVideo{ToWxid,Base64,ImageBase64,PlayLength}
+      SendFile{ToWxid,Base64,FileName} SendEmoji{ToWxid,Md5,TotalLen}
+      SendApp{ToWxid,Type,Xml} ShareCard{ToWxid,CardWxId,CardNickName,CardAlias}
+      SendCDNImg/Video/File{ToWxid,Content=xml}
     """
     if not isinstance(body, dict) or not body:
         return body
 
     lowered = path.lower()
 
-    # ---------- 登录拉码：869 用 IpadOrmac，875 用 DeviceName ----------
+    # ---------- 好友详情 (Friend/GetContractDetail) ----------
+    # 官方 Swagger: /Friend/GetContractDetail 要 {"userName": "wxid1,wxid2"}
+    #   （字符串、逗号分隔、最多20、ChatRoom 留空）。
+    # 869 兼容客户端发的是 {"UserNames": [...], "RoomWxIDList": [...]}；不转换
+    # 协议不认，会返回空壳 ContactList（NickName={}），表现为「拿不到昵称」。
+    if "getcontractdetail" in lowered or "getcontactdetailslist" in lowered:
+        raw_names = body.get("UserNames") or body.get("userNames")
+        if raw_names is None:
+            return body  # 已是 875 扁平结构（userName 字符串），原样放行
+        if not isinstance(raw_names, (list, tuple)):
+            raw_names = [raw_names]
+        return {"userName": ",".join(str(x) for x in raw_names if x)}
+
+    # ---------- 群成员详情 (Group/GetChatRoomMemberDetail) ----------
+    # 官方 Swagger: body {"QID": "xxx@chatroom"}；旧参数 ChatRoomName 不认，
+    # 实测 Success=False 空数据。用 QID 才返回 NewChatroomData.ChatRoomMember。
+    if "getchatroommemberdetail" in lowered:
+        qid = (body.get("QID") or body.get("ChatRoomName")
+               or body.get("ChatRoomWxId") or body.get("ChatRoomUserName") or "")
+        return {"QID": str(qid)}
+
+    # ---------- 已是 875 扁平结构（如 send_image_message 直接构造 {ToWxid,Base64}）----------
+    if "ToWxid" in body and not any(k in body for k in _LIST_KEYS) and not (
+        "ToUserName" in body or "VoiceData" in body or "VideoData" in body
+        or "CardWxId" in body
+    ):
+        return body
+
+    # ---------- 登录拉码 ----------
     if lowered in ("/login/getloginqrcodenewdirect", "/api/login/getqr"):
         device_name = str(body.get("DeviceName") or "").strip()
         if not device_name:
             mode = str(body.get("IpadOrmac") or "ipad").lower()
             device_name = "mac" if mode == "mac" else "iPad"
         result: Dict[str, Any] = {"DeviceName": device_name, "oversea": False}
-        proxy = body.get("Proxy")
-        if proxy:
-            result["Proxy"] = proxy
+        if body.get("Proxy"):
+            result["Proxy"] = body["Proxy"]
         return result
 
-    # ---------- 文本消息 (Msg/SendTxt: ToWxid, Content, At, Type) ----------
+    item = _flat_item(body)
+    to_wxid = str(_g(item, "ToUserName", "ToWxid", "to_wxid", "wxid"))
+
+    # ---------- 文本 (Msg/SendTxt) ----------
     if lowered in ("/message/sendtextmessage", "/api/msg/sendtxt"):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body  # 已是 875 结构
-        at_list = item.get("AtWxIDList") or []
+        at_list = _g(item, "AtWxIDList", "At", default=[])
         at_value = ",".join(str(x) for x in at_list if x) if isinstance(at_list, (list, tuple)) else str(at_list or "")
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Content": item.get("TextContent", ""),
+            "ToWxid": to_wxid,
+            "Content": str(_g(item, "TextContent", "Content", "content")),
             "At": at_value,
-            "Type": int(item.get("MsgType") or 1),
+            "Type": int(_g(item, "MsgType", default=1) or 1),
         }
 
     # ---------- 图片 (Msg/UploadImg: ToWxid, Base64) ----------
@@ -215,136 +298,189 @@ def to_875_body(path: str, body: Optional[Dict[str, Any]]) -> Optional[Dict[str,
         "/message/uploadimagetocdn", "/message/sendimagemessage",
         "/message/sendimagenewmessage", "/api/msg/uploadimg",
     ):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Base64": item.get("ImageContent") or item.get("Base64") or "",
-        }
-
-    # ---------- CDN 转发图片/视频 (Msg/SendCDNImg|Video|File: ToWxid, Content=xml) ----------
-    if lowered in (
-        "/message/forwardimagemessage", "/message/forwardvideomessage",
-        "/message/cdnuploadvideo", "/message/sendcdnfile",
-        "/api/msg/sendcdnimg", "/api/msg/sendcdnvideo", "/api/msg/sendcdnfile",
-    ):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
-        return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Content": item.get("Content") or item.get("Xml") or item.get("TextContent") or "",
+            "ToWxid": to_wxid,
+            "Base64": _b64_str(_g(item, "ImageContent", "Base64", "ImageBase64", "Data")),
         }
 
     # ---------- 语音 (Msg/SendVoice: ToWxid, Base64, Type, VoiceTime) ----------
     if lowered in ("/message/sendvoice", "/api/msg/sendvoice"):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Base64": item.get("Content") or item.get("Base64") or "",
-            "Type": int(item.get("MsgType") or 0),
-            "VoiceTime": int(item.get("VoiceTime") or 0),
+            "ToWxid": to_wxid,
+            "Base64": _b64_str(_g(item, "VoiceData", "Content", "Base64")),
+            # 官方 example Type=0(amr)；VoiceFormat 是客户端的编码枚举(amr0/wav4/mp34)
+            "Type": int(_g(item, "VoiceFormat", default=0) or 0),
+            # 官方 VoiceTime 单位毫秒(example 3000)；客户端 VoiceSecond 是秒
+            "VoiceTime": int(_g(item, "VoiceTime", default=0) or 0) or int(_g(item, "VoiceSecond", default=0) or 0) * 1000,
         }
 
     # ---------- 视频 (Msg/SendVideo: ToWxid, Base64, ImageBase64, PlayLength) ----------
-    if lowered in ("/message/sendvideomessage", "/api/msg/sendvideo"):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
+    if lowered in ("/message/sendvideomessage", "/message/cdnuploadvideo", "/api/msg/sendvideo"):
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Base64": item.get("Content") or item.get("Base64") or "",
-            "ImageBase64": item.get("ThumbBase64") or "",
-            "PlayLength": int(item.get("PlayLength") or 0),
+            "ToWxid": to_wxid,
+            "Base64": _b64_str(_g(item, "VideoData", "Content", "Base64")),
+            "ImageBase64": _b64_str(_g(item, "ThumbData", "ThumbBase64", "ImageBase64")),
+            "PlayLength": int(_g(item, "PlayLength", default=0) or 0),
         }
 
     # ---------- 文件 (Msg/SendFile: ToWxid, Base64, FileName) ----------
     if lowered in ("/message/sendfilemessage", "/api/msg/sendfile"):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Base64": item.get("Content") or item.get("Base64") or "",
-            "FileName": item.get("FileName") or item.get("Title") or "file",
+            "ToWxid": to_wxid,
+            "Base64": _b64_str(_g(item, "FileData", "Content", "Base64")),
+            "FileName": str(_g(item, "FileName", "Title", default="file")),
         }
 
-    # ---------- 撤回 (Msg/Revoke: ToUserName, NewMsgId, ClientMsgId, CreateTime) ----------
-    if lowered in ("/message/revokemsg", "/message/revokemsgnew", "/api/msg/revoke"):
-        item = _first_msg_item(body)
-        if not item and ("ToWxid" in body or "MsgId" in body):
-            return body
-        return {
-            "ToUserName": item.get("ToUserName", ""),
-            "NewMsgId": str(item.get("NewMsgId") or item.get("MsgId") or ""),
-            "ClientMsgId": str(item.get("ClientMsgId") or ""),
-            "CreateTime": int(item.get("CreateTime") or 0),
-        }
-
-    # ---------- App / 链接 / 名片 (Msg/SendApp|ShareLink: ToWxid, Type, Xml) ----------
+    # ---------- App / 链接 (Msg/SendApp|ShareLink: ToWxid, Type, Xml) ----------
     if lowered in (
         "/message/sendappmessage", "/message/sendappmessagenew",
         "/message/sharelinkmessage", "/api/msg/sendapp",
         "/api/msg/sendappmessage", "/api/msg/sharelink",
     ):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Type": int(item.get("MsgType") or item.get("AppMsgType") or 0),
-            "Xml": item.get("Content") or item.get("Xml") or item.get("TextContent") or "",
+            "ToWxid": to_wxid,
+            # 官方 example Type=5；ContentType 是 appmsg 子类型(链接5/文件6)
+            "Type": int(_g(item, "ContentType", "AppMsgType", "Type", default=5) or 5),
+            "Xml": str(_g(item, "ContentXML", "Content", "Xml", "TextContent")),
         }
 
-    # ---------- 名片 (Msg/ShareCard: ToWxid, CardWxId, CardNickName, CardAlias) ----------
+    # ---------- 名片 (Msg/ShareCard) ----------
     if lowered in ("/message/sharecardmessage", "/api/msg/sharecard"):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "CardWxId": item.get("Wxid") or item.get("CardWxId") or "",
-            "CardNickName": item.get("NickName") or item.get("CardNickName") or "",
-            "CardAlias": item.get("Alias") or item.get("CardAlias") or "",
+            "ToWxid": to_wxid,
+            "CardWxId": str(_g(item, "CardWxId", "Wxid")),
+            "CardNickName": str(_g(item, "CardNickName", "NickName")),
+            "CardAlias": str(_g(item, "CardAlias", "Alias")),
         }
 
     # ---------- 表情 (Msg/SendEmoji: ToWxid, Md5, TotalLen) ----------
     if lowered in ("/message/sendemojimessage", "/api/msg/sendemoji"):
-        item = _first_msg_item(body)
-        if not item and "ToWxid" in body:
-            return body
         return {
-            "ToWxid": item.get("ToUserName", ""),
-            "Md5": str(item.get("Md5") or item.get("Content") or ""),
-            "TotalLen": int(item.get("TotalLen") or 0),
+            "ToWxid": to_wxid,
+            "Md5": str(_g(item, "EmojiMd5", "Md5", "Content")),
+            "TotalLen": int(_g(item, "EmojiSize", "TotalLen", default=0) or 0),
         }
 
-    # ---------- 引用回复 (Msg/Quote: 官方小写字段) ----------
+    # ---------- CDN 转发 图/视频/文件 (官方: {ToWxid, Content=xml}) ----------
+    if lowered in (
+        "/message/forwardimagemessage", "/message/forwardvideomessage",
+        "/message/sendcdnfile", "/api/msg/sendcdnimg",
+        "/api/msg/sendcdnvideo", "/api/msg/sendcdnfile",
+    ):
+        # 已经是 xml 字符串则直接用
+        content = str(_g(item, "Content", "Xml", "TextContent", default=""))
+        if not content or not content.lstrip().startswith("<"):
+            content = _build_cdn_forward_xml(item, lowered)
+        return {"ToWxid": to_wxid, "Content": content}
+
+    # ---------- 撤回 ----------
+    if lowered in ("/message/revokemsg", "/message/revokemsgnew", "/api/msg/revoke"):
+        return {
+            "ToUserName": to_wxid,
+            "NewMsgId": str(_g(item, "NewMsgId", "MsgId")),
+            "ClientMsgId": str(_g(item, "ClientMsgId", default="")),
+            "CreateTime": int(_g(item, "CreateTime", default=0) or 0),
+        }
+
+    # ---------- 引用回复 ----------
     if lowered in ("/message/quotemessage", "/api/msg/quote"):
-        item = _first_msg_item(body)
-        if not item and "to_wxid" in body:
-            return body
         return {
-            "to_wxid": item.get("ToUserName", ""),
-            "content": item.get("Content") or item.get("TextContent") or "",
-            "new_msg_id": str(item.get("NewMsgId") or item.get("MsgId") or ""),
-            "quote_content": item.get("QuoteContent") or item.get("quote_content") or "",
-            "msg_type": int(item.get("MsgType") or 1),
+            "to_wxid": to_wxid or str(_g(item, "to_wxid")),
+            "content": str(_g(item, "Content", "TextContent", "content")),
+            "new_msg_id": str(_g(item, "NewMsgId", "MsgId")),
+            "quote_content": str(_g(item, "QuoteContent", "quote_content")),
+            "msg_type": int(_g(item, "MsgType", default=1) or 1),
         }
 
-    # ---------- 消息同步 (Msg/Sync: Scene, Synckey) ----------
+    # ---------- 消息同步 ----------
     if lowered in ("/message/httpsyncmsg", "/api/msg/sync"):
-        if "Synckey" in body and "Scene" in body:
-            return body
         return {
             "Scene": int(body.get("Scene") or 0),
             "Synckey": str(body.get("Synckey") or "initial"),
         }
 
+    # ---------- 通用字段别名对齐（数据驱动 / 幂等 / 保留未知字段）----------
+    # 依据官方 swagger.json 各端点 requestBody schema 的字段名，只做「确定同义」
+    # 的重命名。幂等：目标字段名已存在则跳过（兼容调用方已按 875 格式构造，
+    # 如 download_voice_875 / download_video_875）；宽容：未列别名的字段原样
+    # 保留（不破坏 869 quirk）。精确路径匹配，避免 getchatroominfo 误吃 Detail。
+    # 刻意不做：加好友 v1/v2 ticket、朋友圈 synckey、红包 Xml、GetMsgVoice 的
+    # wxid 方向 —— 869/875 语义不同，凭字段名强转会送错数据，比不通更糟。
+    alias = {
+        "/group/sendpat": [("ChatRoomName", "QID", "first")],
+        "/group/getchatroominfo": [("ChatRoomWxIdList", "QID", "first")],
+        "/group/getchatroominfodetail": [("ChatRoomName", "QID", "first")],
+        "/group/setgetchatroominfodetail": [("ChatRoomName", "QID", "first")],
+        "/group/getchatroomqrcode": [("ChatRoomName", "QID", "first")],
+        "/group/addchatroommembers": [("UserList", "ToWxids", "join")],
+        "/group/invitechatroommembers": [("UserList", "ToWxids", "join")],
+        "/friend/delcontact": [("Wxid", "toWxid", "first")],
+        "/friend/getcontactlist": [
+            ("CurrentWxcontactSeq", "currentWxcontactSeq", "first"),
+            ("CurrentChatRoomContactSeq", "currentChatRoomContactSeq", "first")],
+        "/message/sendcdndownload": [
+            ("AesKey", "file_aes_key", "first"), ("FileURL", "file_no", "first")],
+        "/message/getmsgvoice": [
+            ("Bufid", "bufid", "first"), ("Length", "length", "first"),
+            ("NewMsgId", "msgId", "first"), ("ToUserName", "fromUserName", "first")],
+        "/message/getmsgvideo": [
+            ("MsgId", "msg_id", "first"), ("TotalLen", "data_len", "first"),
+            ("CompressType", "compress_type", "first"), ("Section", "section", "first"),
+            ("ToUserName", "to_wxid", "first")],
+        "/message/getmsgbigimg": [
+            ("MsgId", "msg_id", "first"), ("TotalLen", "data_len", "first"),
+            ("CompressType", "compress_type", "first"), ("Section", "section", "first"),
+            ("ToUserName", "to_wxid", "first")],
+        "/admin/genauthkey3": [("Count", "count", "first")],
+        "/user/getmyqrcode": [("Style", "style", "first")],
+        "/user/setproxy": [("Proxy", "proxy", "first")],
+        "/other/updatestepnumber": [("Number", "step", "first")],
+        "/sns/sendsnscomment": [
+            ("ID", "id", "first"), ("Towxid", "toWxid", "first"),
+            ("Content", "content", "first"), ("Type", "type", "first"),
+            ("ReplyCommnetId", "replyCommnetId", "first")],
+        "/sns/sendsnsuserpage": [
+            ("Maxid", "id", "first"), ("Towxid", "towxid", "first")],
+    }.get(lowered)
+    if alias:
+        out = dict(body)
+        for src, dst, mode in alias:
+            if dst in out or src not in out:
+                continue
+            val = out.pop(src)
+            if mode == "first" and isinstance(val, (list, tuple)):
+                val = val[0] if val else ""
+            elif mode == "join" and isinstance(val, (list, tuple)):
+                val = ",".join(str(x) for x in val if x)
+            out[dst] = val
+        return out
+
     return body
+
+
+def _build_cdn_forward_xml(item: Dict[str, Any], lowered: str) -> str:
+    """把客户端结构化的 CDN 转发字段重建为官方 Content(xml)。
+
+    SendCDNImg/Video/File 官方 schema 是 DefaultParamDoc{ToWxid, Content}，
+    Content 是原始 media XML；客户端拆成了 AesKey/CdnXxxUrl/Length 等字段，
+    这里按微信 media xml 约定还原，保证转发类型也有可发送的请求体。
+    """
+    import html
+    def esc(v):
+        return html.escape(str(v), quote=True)
+    aes = esc(_g(item, "AesKey", "aeskey"))
+    if "cdnimg" in lowered or "forwardimage" in lowered:
+        url = esc(_g(item, "CdnMidImgUrl", "cdnmidimgurl", "cdnbigimgurl"))
+        length = _g(item, "CdnMidImgSize", "length", default=0)
+        return f'<msg><img aeskey="{aes}" cdnmidimgurl="{url}" length="{length}" /></msg>'
+    if "cdnvideo" in lowered or "forwardvideo" in lowered:
+        url = esc(_g(item, "CdnVideoUrl", "cdnvideourl"))
+        length = _g(item, "Length", "length", default=0)
+        play = _g(item, "PlayLength", "playlength", default=0)
+        return f'<msg><videomsg aeskey="{aes}" cdnvideourl="{url}" length="{length}" playlength="{play}" /></msg>'
+    # 文件 / appmsg
+    return f'<msg><appmsg appid="" sdkver="0"><type>6</type><title>{esc(_g(item, "FileName", default="file"))}</title></appmsg></msg>'
+
 
 def normalize_875_response(path: str, payload: Any) -> Any:
     """把 875 响应归一化为框架期望的结构（主要是发送回执）。"""
@@ -393,16 +529,73 @@ def normalize_875_message(raw: Dict[str, Any]) -> Dict[str, Any]:
                 return value
         return default
 
-    msg_type = pick("msgType", "MsgType", "Type", default=1)
+    # 875 会推送新版 wechatpad.message.v2（snake_case：sender_id / recipient_id /
+    # conversation_id / type / direction），本账号发出的消息也会以 sync_message
+    # 包回推(direction=outgoing)。不同协议各自推、各自入队各自触发，适配器只负责
+    # 接住并归一化，不在此层判断「是不是自己发的」去拦截。
+    # v2 严格判定：只认 v2 特有标志(direction / kind / new_msg_id+sender_id / schema)，
+    # 且排除任何老格式 camelCase 字段。旧写法仅凭 "conversation_id" in raw 就判 v2，
+    # 会把老格式消息(带 conversation_id+type)误判 → 取 type(如48) 当 MsgType →
+    # router 找不到处理器直接丢弃 → 整条消息所有插件都不触发。
+    _legacy_keys = ("msgId", "MsgId", "msgType", "MsgType", "createTime", "CreateTime",
+                    "fromWxid", "FromUserName", "pushContent", "PushContent")
+    _has_legacy = any(k in raw for k in _legacy_keys)
+    is_v2 = (not _has_legacy) and (
+        raw.get("schema") == "wechatpad.message.v2"
+        or "direction" in raw
+        or "kind" in raw
+        or ("sender_id" in raw and ("new_msg_id" in raw or "id" in raw))
+    )
+
+    # 875 推送里 Type 常表示设备/通道类型而非微信 MsgType，误取会把纯文本
+    # 标成图片(3)/XML(49)，下游按 XML 解析即崩。只认明确的消息类型字段。
+    msg_type = pick("type", "msg_type", "msgType", "MsgType", "msgtype", default=1) if is_v2 \
+        else pick("msgType", "MsgType", "msgtype", default=1)
     try:
         msg_type = int(msg_type)
     except (TypeError, ValueError):
         msg_type = 1
 
-    from_wxid = str(pick("fromWxid", "FromUserName", "from", default=""))
-    to_wxid = str(pick("toWxid", "ToUserName", "to", default=""))
+    if is_v2:
+        sender_id = str(pick("sender_id", "from_user_id", default=""))
+        recipient_id = str(pick("recipient_id", "to_wxid", default=""))
+        conversation_id = str(pick("conversation_id", "chat_user_id", default=""))
+        direction = str(pick("direction", default="")).lower()
+        is_outgoing = direction in ("outgoing", "out", "send") or bool(raw.get("is_outgoing"))
+        # 会话窗口（群里=群id，私聊=对端）：决定 channel_id 与回复路由
+        window = conversation_id or recipient_id or sender_id
+        if is_outgoing:
+            from_wxid = window               # 会话窗口
+            to_wxid = sender_id              # 本账号（发送方）
+        else:
+            from_wxid = sender_id or window
+            to_wxid = recipient_id or conversation_id
+        v2_is_group = bool(raw.get("is_group")) or window.endswith("@chatroom")
+    else:
+        sender_id = direction = ""
+        is_outgoing = v2_is_group = False
+        from_wxid = str(pick("fromWxid", "FromUserName", "from", default=""))
+        to_wxid = str(pick("toWxid", "ToUserName", "to", default=""))
+
     content = pick("content", "Content", "pushContent", "PushContent", default="")
+    # Content 可能是 {"string": "..."} / {"String": "..."} 之类包装，
+    # 直接 str() 会得到 Python repr，下游 XML/JSON 解析必崩，先安全取文本。
+    if isinstance(content, dict):
+        content = (
+            content.get("string") or content.get("String") or content.get("text")
+            or content.get("Text") or content.get("content") or ""
+        )
     content_str = str(content)
+
+    # 875 推送里媒体/应用消息常只带摘要文本（"收到一张图片" / 普通文字），
+    # 而下游 process_image_message / process_xml_message 会对 Content 做
+    # ET.fromstring，非 XML 就抛 ParseError 刷屏。判断是否结构化 XML：
+    # 必须含 '<msg' 或 '<appmsg' 或至少一个自洽的 '<...>' 标签对。
+    is_xml_payload = bool(re.search(r"<(?:msg|appmsg|img|voicemsg|videomsg|emoji)\b", content_str, re.I))
+    # 不再把媒体降级成文本(1)：降级会让图片/表情/系统通知变成 text_message
+    # 灌进全量文本插件（Assistant/DouyinParser 等无触发词也运行）。
+    # 媒体保留原始 msg_type；无 XML 的摘要类由上层入站过滤，不入队。
+    degraded = False
 
     # P1-2: 媒体消息 XML 参数提取（供后续 CDN/Tools 下载使用）
     media_meta = {}
@@ -425,20 +618,35 @@ def normalize_875_message(raw: Dict[str, Any]) -> Dict[str, Any]:
         if attachid_match: media_meta["attachid"] = attachid_match.group(1)
 
     result = {
-        "msg_id": str(pick("msgId", "MsgId", "newMsgId", "NewMsgId", media_meta.get("msg_id", ""), default="")),
+        # v2 用 id / new_msg_id / svr_id；老格式用 msgId/MsgId/newMsgId
+        "msg_id": str(pick("id", "new_msg_id", "svr_id", "msgId", "MsgId", "newMsgId", "NewMsgId",
+                           media_meta.get("msg_id", ""), default="")),
         "from_wxid": from_wxid,
         "to_wxid": to_wxid,
+        # 非结构化媒体摘要降级为文本(1)，避免下游 XML 解析崩溃刷屏；
+        # 原始类型保留在 original_msg_type 供插件按需识别。
         "msg_type": msg_type,
+        "original_msg_type": msg_type,
+        "degraded": degraded,
         "content": content_str,
-        "timestamp": pick("createTime", "CreateTime", "create_time", default=0),
-        "is_group": str(from_wxid).endswith("@chatroom"),
+        # v2 用 created_at（秒）；老格式用 createTime
+        "timestamp": pick("created_at", "createTime", "CreateTime", "create_time", default=0),
+        # v2 以会话窗口判定群（自身 outgoing 私聊窗口=对端，不能靠 from_wxid 判）
+        "is_group": v2_is_group if is_v2 else str(from_wxid).endswith("@chatroom"),
         "raw": raw,
     }
-    
+    # v2 附加元信息（如实标注方向/发送者，不做拦截）
+    if is_v2:
+        result["v2"] = True
+        result["direction"] = direction or ("outgoing" if is_outgoing else "incoming")
+        result["sender_id"] = sender_id
+        result["recipient_id"] = recipient_id
+        result["conversation_id"] = str(pick("conversation_id", default=""))
+
     # 若提取到媒体元数据，附加到结果中供下载管线使用
     if media_meta:
         result["media_meta"] = media_meta
-        
+
     return result
 
 
