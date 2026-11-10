@@ -2724,11 +2724,13 @@ class WechatAPIClient(WechatAPIClientBase):
         wxid: str,
         video: Union[str, bytes, os.PathLike],
         image: Union[str, bytes, os.PathLike] = "",
+        duration: Optional[int] = None,
     ) -> Dict[str, Any]:
         if self._should_route_via_reply_router(wxid):
-            return await self.reply_router.send_video(wxid, video, image)
+            return await self.reply_router.send_video(wxid, video, image, duration)
 
-        video_bytes = base64.b64decode(self._coerce_binary_to_base64(video))
+        video_base64 = self._coerce_binary_to_base64(video)
+        video_bytes = base64.b64decode(video_base64)
         thumb_bytes = self._build_video_thumb_bytes(image)
 
         # 对齐 MuseBridge：未传真实封面/落到默认占位图时，从视频首帧抽 JPEG
@@ -2744,6 +2746,15 @@ class WechatAPIClient(WechatAPIClientBase):
                     thumb_bytes = _cover
             except Exception:
                 pass
+
+        if self.protocol_version == "875":
+            # SendVideo 本身已发送消息；即使回执有 CDN 字段也不能再转发一次。
+            data = await self.call_path("/message/SendVideoMessage", body={
+                "ToWxid": wxid, "Base64": video_base64,
+                "ImageBase64": base64.b64encode(thumb_bytes).decode(),
+                "PlayLength": max(0, _safe_int(duration, 0)),
+            })
+            return data if isinstance(data, dict) else {"Data": data}
 
         payload = {
             "ToUserName": wxid,
@@ -2852,13 +2863,27 @@ class WechatAPIClient(WechatAPIClientBase):
         file_name: str = "",
     ) -> Dict[str, Any]:
         if self._should_route_via_reply_router(wxid):
-            # ReplyRouter 目前没有 file 类型，避免误发为图片：退化为文本提示交由上层处理
-            client_msg_id, create_time, new_msg_id = await self.reply_router.send_text(
-                wxid,
-                f"[file] {file_name or 'file'}",
-                None,
-            )
+            client_msg_id, create_time, new_msg_id = await self.reply_router.send_file(wxid, file_data, file_name)
             return {"client_msg_id": client_msg_id, "create_time": create_time, "new_msg_id": new_msg_id}
+
+        if self.protocol_version == "875":
+            source_name = ""
+            if not file_name and isinstance(file_data, (str, os.PathLike)) and os.path.isfile(file_data):
+                source_name = os.path.basename(file_data)
+            name = (file_name or source_name or "file").strip() or "file"
+            encoded = self._coerce_binary_to_base64(file_data)
+            data = await self.call_path("/message/SendFileMessage", body={
+                "ToWxid": wxid, "FileName": name, "Base64": encoded,
+            })
+            receipt = dict(data) if isinstance(data, dict) else {"Data": data}
+            client_id, created_at, message_id = self._extract_send_tuple(data)
+            receipt.setdefault("clientMsgId", client_id)
+            receipt.setdefault("createTime", created_at)
+            receipt.setdefault("newMsgId", message_id)
+            receipt.setdefault("mediaId", receipt.get("MediaId", ""))
+            receipt.setdefault("totalLen", len(encoded.rstrip("=")) * 3 // 4)
+            receipt.setdefault("fileName", name)
+            return receipt
 
         file_info = await self.upload_file(file_data)
         media_id = (

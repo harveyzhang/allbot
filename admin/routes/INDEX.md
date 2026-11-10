@@ -21,7 +21,7 @@
 
 - `页面`：依赖 `require_auth_page`，未登录会话重定向至 `/login`。
 - `鉴权`：API 依赖 `require_auth`（Session/Basic），匿名/挑战类已单独标注。
-- `无显式鉴权`：代码中未声明 `Depends` 的端点（如 adapter/wetty/部分 WS），实际可用性依赖部署网络边界，文档据代码如实标注。
+- `无显式鉴权`：代码中未声明 `Depends` 的端点（如 wetty 和部分 WS），实际可用性依赖部署网络边界。
 
 ## 页面路由（pages.py + notification_routes.py + account_manager.py）
 
@@ -103,10 +103,11 @@
 | /api/plugin_market/install | POST | 从市场安装 | 鉴权 | plugins.py |
 | /api/plugins/install | POST | 直连安装 | 鉴权 | plugins.py |
 | /ws/plugins | WS | 插件 WebSocket | 鉴权 | plugins.py |
-| /api/adapters | GET | 适配器列表 | 无显式鉴权 | adapter_routes.py |
-| /api/adapters/{adapter_name}/toggle | PUT | 切换适配器启停 | 无显式鉴权 | adapter_routes.py |
-| /api/adapters/{adapter_name} | GET | 适配器配置 | 无显式鉴权 | adapter_routes.py |
-| /api/adapters/{adapter_name}/doc | GET | 适配器说明文档 | 无显式鉴权 | adapter_routes.py |
+| /api/adapters | GET | 适配器列表 | 鉴权 | adapter_routes.py |
+| /api/adapters/{adapter_name}/toggle | PUT | 切换适配器启停 | 鉴权 | adapter_routes.py |
+| /api/adapters/{adapter_name} | GET | 适配器配置 | 鉴权 | adapter_routes.py |
+| /api/adapters/{adapter_name}/doc | GET | 适配器说明文档 | 鉴权 | adapter_routes.py |
+| /api/adapters/{adapter_name}/login/* | GET / POST | 适配器登录和二维码 | 鉴权 | adapter_routes.py |
 | /api/auth/login | POST | 登录（签发会话 Cookie） | 公开 | auth_routes.py |
 | /api/auth/status | GET | 登录状态（轮询） | 公开 | auth_routes.py |
 | /api/auth/logout | POST | 登出 | 公开 | auth_routes.py |

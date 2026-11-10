@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from typing import Any, Dict, Optional
 
 # 875 路径映射（869 路径 → 875 实际路径）
@@ -40,6 +41,7 @@ ROUTE_MAP_875: Dict[str, str] = {
     "/login/TwiceAutoAuth": "/api/Login/TwiceAutoAuth",
     "/login/NewInit": "/api/Login/Newinit",
     "/login/HeartBeat": "/api/Login/HeartBeat",
+    "/login/AutoHeartBeat": "/api/Login/AutoHeartBeat",
     "/login/GetCacheInfo": "/api/Login/GetCacheInfo",
     "/login/Get62Data": "/api/Login/Get62Data",
     # ---------- 消息发送 ----------
@@ -633,6 +635,7 @@ def normalize_875_message(raw: Dict[str, Any]) -> Dict[str, Any]:
         "original_msg_type": msg_type,
         "degraded": degraded,
         "content": content_str,
+        "msg_source": _read_msg_source(pick("MsgSource", "msgSource", "msg_source", "msgsource"))[0],
         # v2 用 created_at（秒）；老格式用 createTime
         "timestamp": pick("created_at", "createTime", "CreateTime", "create_time", default=0),
         # v2 以会话窗口判定群（自身 outgoing 私聊窗口=对端，不能靠 from_wxid 判）
@@ -716,19 +719,29 @@ def parse_875_login_status(payload: Any) -> Dict[str, Any]:
 # 群聊 @ 解析与群发送者拆分（P1-4）
 # ---------------------------------------------------------------------------
 
-def extract_at_members(content_xml: str) -> list[str]:
-    """从文本消息 XML 的 <atuserlist> 中解析被 @ 的成员 wxid 列表。
+def _read_msg_source(value: Any) -> tuple[str, list[str]]:
+    """保留消息来源，并将被 @ 的账号整理成框架读取的逗号列表。"""
+    if isinstance(value, dict):
+        value = value.get("string") or value.get("String")
+    if not isinstance(value, str) or not value.strip():
+        return "<msgsource/>", []
+    try:
+        root = ET.fromstring(value)
+    except ET.ParseError:
+        return "<msgsource/>", []
+    node = root.find("atuserlist")
+    if node is None:
+        return value, []
+    members = (node.text or "").split(",")
+    members.extend(child.text or "" for child in node.iter("username"))
+    members = list(dict.fromkeys(item.strip() for item in members if item.strip()))
+    node[:] = []
+    node.text = ",".join(members)
+    return ET.tostring(root, encoding="unicode"), members
 
-    微信文本消息的 Content 形如：
-      <msgsource><atuserlist><voipid><username>wxid_a</username></voipid></atuserlist></msgsource>
-    本函数返回被 @ 的成员 wxid 列表。
-    """
-    if not content_xml or "<atuserlist>" not in content_xml:
-        return []
-    import re as _re
-    # 提取所有 <username> 或 <atuserlist> 下的 wxid
-    usernames = _re.findall(r"<username>([^<]+)</username>", content_xml)
-    return [u.strip() for u in usernames if u.strip()]
+
+def extract_at_members(content_xml: str) -> list[str]:
+    return _read_msg_source(content_xml)[1]
 
 
 def split_group_sender(content: str, from_wxid: str) -> tuple[str, str]:

@@ -3,11 +3,11 @@
 """
 @input: FastAPI APIRouter、adapter_manager（适配器注册表）
 @output: 适配器列表/配置/启停/说明文档 API（/api/adapters/*）
-@position: 管理后台适配器管理入口（无显式 Depends，依赖部署网络边界）
+@position: 适配器管理路由统一校验后台登录会话
 @auto-doc: Update header and folder INDEX.md when this file changes
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from loguru import logger
@@ -15,10 +15,11 @@ import asyncio
 from typing import Optional
 
 from admin.adapter_manager import adapter_manager
+from admin.utils.auth_dependencies import require_auth
 from adapter import loader as adapter_loader
 
 # 创建路由器
-bp = APIRouter(prefix="/api/adapters", tags=["adapters"])
+bp = APIRouter(prefix="/api/adapters", tags=["adapters"], dependencies=[Depends(require_auth)])
 
 
 class ToggleRequest(BaseModel):

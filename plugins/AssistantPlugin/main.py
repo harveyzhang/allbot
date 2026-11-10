@@ -8,19 +8,20 @@
 import ast
 import asyncio
 import base64
-import glob
 import hashlib
 import html
 import json
 import mimetypes
 import os
 import re
+import tempfile
 import tomllib
 import time
 import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
@@ -776,6 +777,9 @@ class AssistantPlugin(PluginBase):
         与前端面板同一接口、同一 Bearer token：multipart 字段 file，
         文件直接落盘到网关侧，agent 用「附件路径: <path>」Read 本地文件。
         """
+        local_path = self._local_quote_file(local_path)
+        if not local_path:
+            return ""
         file_name = os.path.basename(local_path)
         try:
             with open(local_path, "rb") as f:
@@ -834,6 +838,24 @@ class AssistantPlugin(PluginBase):
             md5_value = self._calc_md5_from_path(path)
         return path, md5_value
 
+    def _quote_media_roots(self) -> tuple[Path, Path]:
+        root = Path("/app") if Path("/app").is_dir() else Path.cwd()
+        configured = getattr(getattr(self, "bot", None), "media_cache_dir", None)
+        cache = configured if isinstance(configured, (str, os.PathLike)) and configured else "admin/static/temp/875/media"
+        return root / "files", root / cache
+
+    def _local_quote_file(self, value: str) -> str:
+        """只允许上传框架缓存中的普通文件，引用 XML 中的路径由消息发送方提供。"""
+        if not value:
+            return ""
+        try:
+            path = Path(value).resolve(strict=True)
+            if path.is_file() and any(path.is_relative_to(root.resolve()) for root in self._quote_media_roots()):
+                return str(path)
+        except (OSError, RuntimeError, ValueError):
+            pass
+        return ""
+
     def _extract_quote_resource_path(self, quote_xml: str) -> str:
         """从引用 XML 中提取资源路径。"""
         raw = _safe_text(quote_xml).strip()
@@ -843,8 +865,10 @@ class AssistantPlugin(PluginBase):
         for key in ("resource_path", "resourcepath", "filepath", "file_path", "fullpath",
                     "videopath", "video_path", "voicepath", "voice_path"):
             match = re.search(r'\b' + re.escape(key) + r'="([^"]+)"', raw, re.IGNORECASE)
-            if match and os.path.isfile(match.group(1).strip()):
-                return match.group(1).strip()
+            if match:
+                path = self._local_quote_file(match.group(1).strip())
+                if path:
+                    return path
         return ""
 
     def _extract_quote_md5(self, quote_xml: str) -> str:
@@ -1044,20 +1068,22 @@ class AssistantPlugin(PluginBase):
 
     def _save_quote_binary(self, payload: bytes, file_name: str) -> str:
         """保存引用媒体到 files 目录。"""
-        root = "/app" if os.path.isdir("/app") else os.getcwd()
-        target_dir = os.path.join(root, "files")
+        target_dir, _ = self._quote_media_roots()
+        suffix = Path(file_name).suffix
+        target = target_dir / (hashlib.md5(payload).hexdigest() + suffix)
+        temporary = None
         try:
-            os.makedirs(target_dir, exist_ok=True)
-        except Exception:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=target_dir, delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(payload)
+            temporary.replace(target)
+            return str(target)
+        except OSError:
             return ""
-        file_path = os.path.join(target_dir, os.path.basename(file_name))
-        try:
-            if not os.path.isfile(file_path):
-                with open(file_path, "wb") as f:
-                    f.write(payload)
-            return file_path
-        except Exception:
-            return ""
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def _calc_md5_from_path(self, file_path: str) -> str:
         """计算文件 MD5。"""
@@ -1092,18 +1118,16 @@ class AssistantPlugin(PluginBase):
 
     def _find_cached_media(self, resource_path: str, md5_value: str) -> str:
         """在 /app/files/ 中查找已缓存的媒体文件（多子目录）。"""
-        roots = ["/app", os.getcwd()]
-        for root in roots:
-            if resource_path and os.path.isfile(resource_path):
-                return resource_path
-            if md5_value:
-                for pattern in [
-                    os.path.join(root, "files", f"{md5_value}.*"),
-                    os.path.join(root, "files", "**", f"{md5_value}.*"),
-                ]:
-                    matches = glob.glob(pattern, recursive=True)
-                    if matches:
-                        return max(matches, key=lambda p: os.path.getmtime(p))
+        cached = self._local_quote_file(resource_path)
+        if cached:
+            return cached
+        if not re.fullmatch(r"[a-fA-F0-9]{32}", md5_value or ""):
+            return ""
+        for root in self._quote_media_roots():
+            matches = [found for path in root.rglob(f"{md5_value}.*")
+                       if (found := self._local_quote_file(str(path)))]
+            if matches:
+                return max(matches, key=os.path.getmtime)
         return ""
 
     # 网关侧 session_id 校验规则（web_server.py _SESSION_ID_RE）：

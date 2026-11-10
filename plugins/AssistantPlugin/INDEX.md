@@ -2,12 +2,12 @@
 
 # AssistantPlugin
 
-SSE 流式 AI 对话小助手插件：支持 @ 提及、触发词、引用消息上下文（含引用媒体 URL 提取）、私聊/群聊 session 隔离。
+SSE 流式 AI 对话小助手插件支持 @ 提及、触发词和引用消息。引用附件通过网关上传，文件来源限定在框架媒体目录和协议缓存目录。私聊与群聊使用各自的会话。
 
 ## Files
 
 | File | Role | Function |
 |------|------|----------|
-| main.py | Core | 插件入口；配置加载；prompt 组装（引用文本 + 引用媒体公网URL）；SSE 流式回复；管理员权限控制 |
+| main.py | Core | 加载配置、组装引用文本与附件路径、处理流式回复并校验管理员权限 |
 | config.toml | Config | 开关、触发词、管理员列表、image-public-base-url 等配置项 |
 | __init__.py | Export | 导出 AssistantPlugin |

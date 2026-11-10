@@ -536,6 +536,8 @@ class Wechat875Adapter:
                 self._logger.warning(
                     f"账户 {account.wxid} WS 断开: {exc}，{self.reconnect_interval}s 后重连"
                 )
+            finally:
+                account.ws_connected = False
         account.ws_connected = False
 
     async def _poll_worker(self, account: _Account) -> None:
@@ -777,7 +779,7 @@ class Wechat875Adapter:
             "Timestamp": timestamp,
             "CreateTime": timestamp,
             "Content": {"string": content},
-            "MsgSource": "<msgsource></msgsource>",
+            "MsgSource": normalized["msg_source"],
             "IsGroup": is_group,
             "FromWxid": channel_id,
             "ToWxid": to_wxid_value,
@@ -1063,7 +1065,8 @@ class Wechat875Adapter:
                 # 取不到视频字节时永久丢弃，避免网关反复「解码失败」+ 无限重入队
                 raise _PermanentReplyError("video 回复缺少有效视频数据(media 未解包或为空)")
             result = await client.send_video_message(
-                target, video_data, self._coerce_media(thumb)
+                target, video_data, self._coerce_media(thumb),
+                duration=self._coerce_int(content.get("duration"), 0) if isinstance(content, dict) else 0,
             )
             self._logger.info(f"[{account_wxid}] video -> {target}: {self._short(result)}")
             return
