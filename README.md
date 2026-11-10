@@ -29,7 +29,7 @@ AllBot 是一个**支持多平台的智能机器人系统**，采用插件化架
 
 ### 核心特性
 
-- 🎯 **插件化架构**：内置 13 个插件（`plugins/`），支持热加载，并可通过插件市场安装更多
+- 🎯 **插件化架构**：`plugins/` 21 个插件目录，支持热加载，并可通过插件市场安装更多
 - 🤖 **多 AI 平台**：Dify、OpenAI、FastGPT、SiliconFlow 等
 - 🌐 **多平台支持**：微信、微信 clawbot 渠道（ocwx）、QQ、Telegram、Web、Windows、企业微信智能机器人（wecom_bot，默认关闭）
 - 💻 **Web 管理后台**：FastAPI + Bootstrap 5 现代化界面
@@ -49,8 +49,10 @@ Python 3.11+ | FastAPI | SQLite + Redis | RabbitMQ | APScheduler | Loguru | Boot
 - [多平台适配器](docs/multi-platform-adapter.md) - QQ/Telegram/Web/Win/ocwx/wecom_bot/**wechat_869/wechat_875（多账户扫码）**
 
 ### 开发文档
+- [框架消息契约](docs/框架消息契约.md) - **全仓消息契约唯一事实源**（归一入口与字段、14 事件全集、路由表、插件/适配器契约、facade 承诺 API）
 - [系统架构文档](docs/系统架构文档.md) - 架构设计
-- [插件开发指南](docs/插件开发指南.md) - 插件开发教程
+- [插件开发指南](docs/插件开发指南.md) - 插件开发教程（按现版契约重写）
+- [多平台适配器](docs/multi-platform-adapter.md) - 适配器开发教程（按现版契约重写）
 - [API 文档](docs/API文档.md) - API 接口说明
 - [AI 开发指南](CLAUDE.md) - AI 辅助开发
 
@@ -58,7 +60,7 @@ Python 3.11+ | FastAPI | SQLite + Redis | RabbitMQ | APScheduler | Loguru | Boot
 
 | 平台 | 协议 | 说明 |
 |------|------|------|
-| **微信** | 869/pad/ipad/mac/win 等 | 多协议版本支持 |
+| **微信** | 协议实现由 `adapter/` 提供 | 详见 [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **微信 clawbot 渠道（ocwx）** | openclaw-weixin HTTP JSON | 多账号扫码登录与 ReplyQueue 回写 |
 | **QQ** | NTQQ | 私聊和群聊 |
 | **Telegram** | Bot API | 长轮询/Webhook |
@@ -74,16 +76,18 @@ Python 3.11+ | FastAPI | SQLite + Redis | RabbitMQ | APScheduler | Loguru | Boot
 
 | 分支 | 说明 |
 |------|------|
-| `main` | 纯 allbot 框架（不含 wxserver/874 二进制） |
-| `feat/wxserver-license` | 含 wxserver + 874 协议服务 + 远程卡密授权 + 十端登录支持 |
+| `main` | 稳定发布分支；由 `dev` 经 PR 合并而来，跟随 `dev` 的完整功能集 |
+| `dev` | 开发主线，含完整适配器集合（`wechat_869` / `wechat_875` 等）；日常改动只提交到这里 |
+| `feat/wxserver875-license` | 875 协议运行时精简集（Dockerfile / conf875 / lib / entrypoint 等），用于构建运行时镜像 |
 
-> **需要微信协议服务（869/874）+ 卡密授权的用户**：请使用 `feat/wxserver-license` 分支，见下方说明。
+> **开发约定**：功能与文档改动统一在 `dev` 提交、推送，再通过 Pull Request 合并进 `main`；`main` 不直接提交。
+> 三个分支共享同一个根提交（2026-11-09 历史截断：共同分叉点之前的历史已丢弃，之后的提交链完整保留），因此 `dev` → `main` 为常规合并，无需特殊参数。旧 clone 需重新克隆。
 
-### feat/wxserver-license 分支（含 869/874 协议 + 卡密授权）
+### feat/wxserver875-license 分支（875 运行时镜像）
 
 ```bash
-# 克隆项目并切换到 feat 分支
-git clone -b feat/wxserver-license https://github.com/sxkiss/allbot.git
+# 克隆项目并切换到运行时分支
+git clone -b feat/wxserver875-license https://github.com/sxkiss/allbot.git
 cd allbot
 
 # 编辑 main_config.toml（协议版本、管理员账号等）
@@ -96,11 +100,10 @@ docker compose logs -f
 ```
 
 **特性：**
-- **双协议**：支持 869 与 874 协议，页面一键切换
-- **多端登录**：iPad / Mac / 安卓 Pad / Windows / 车载 等多种设备类型
-- **授权管理**：基于卡密使用授权，绑定设备
+- 875 协议运行时所需的最小文件集（镜像构建配置、协议库、启动脚本）
+- 与主框架分支共享共同根，按需取用即可
 
-### main 分支（纯 allbot 框架）
+### Docker / 本地部署
 
 <table>
   <tr>
@@ -188,7 +191,7 @@ python main.py
 多模型支持 | 图文识别 | 语音交互 | 上下文记忆 | 聊天室模式 | 积分系统
 
 ### 插件系统
-内置 13 个插件（`plugins/`），并支持通过插件市场扩展更多能力，覆盖 AI 对话、娱乐游戏、工具实用、文件媒体、系统管理等领域。
+`plugins/` 21 个插件目录，并支持通过插件市场扩展更多能力，覆盖 AI 对话、娱乐游戏、工具实用、文件媒体、系统管理等领域。
 
 详细功能列表请查看 [插件列表](docs/插件列表.md)。
 
@@ -250,7 +253,7 @@ option_1 = "value"
 
 ### 可用装饰器
 
-`@on_text_message` | `@on_image_message` | `@on_voice_message` | `@on_video_message` | `@on_file_message` | `@on_friend_request` | `@on_group_invite` | `@schedule`
+框架提供 `@schedule` 与 13 个 `on_*_message(priority=50)` 装饰器：`@on_text_message` / `@on_image_message` / `@on_voice_message` / `@on_emoji_message` / `@on_file_message` / `@on_quote_message` / `@on_video_message` / `@on_pat_message` / `@on_at_message` / `@on_system_message` / `@on_other_message` / `@on_article_message` / `@on_xml_message`。14 个事件全集、归一后字段契约与优先级规则见 [框架消息契约](docs/框架消息契约.md)（全仓消息契约唯一事实源）。
 
 详细教程请参考 [插件开发指南](docs/插件开发指南.md)。
 
@@ -298,7 +301,7 @@ option_1 = "value"
 AllBot/
 ├── admin/              # 管理后台（FastAPI + Bootstrap 5）
 ├── adapter/            # 多平台适配器（QQ/TG/Web/Win/ocwx/wx/wecom_bot/wechat_869/wechat_875 等）
-├── plugins/            # 内置插件（默认 13 个，可通过插件市场扩展）
+├── plugins/            # 插件目录（21 个，可通过插件市场扩展）
 ├── database/           # 数据持久化（SQLite + Redis）
 ├── utils/              # 工具模块（插件管理、事件系统）
 ├── WechatAPI/          # 微信协议封装

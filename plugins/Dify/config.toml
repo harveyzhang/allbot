@@ -22,7 +22,7 @@ robot-names = [ "Hdkhd", "🥥", "智能助手", "小小x" ]
 
 [Dify.models."学姐"]
 api-key = "app-lNZufin18ymh5rX8viSaq5lZ"
-base-url = "http://l.sxkiss.top/v1"
+base-url = "http://example.internal/v1"
 trigger-words = [ "@学姐" ]
 wakeup-words = [ "#" ]
 price = 0

@@ -3,7 +3,7 @@
 enable = true
 
 # === Gateway API (8642 端口) - OpenAI 兼容接口 ===
-api-base-url = "http://l.sxkiss.top:8642"
+api-base-url = "http://example.internal:8642"
 api-key = "e8745b717a6a883fa15e8392b0a7093219050da61c2a94faf2c35d8ddf822e44"
 
 request-timeout-seconds = 1800
@@ -35,7 +35,7 @@ image-auto-forward-enable = true
 image-forward-mode = "url"
 quote-include-enable = true
 image-base64-max-chars = 0
-image-public-base-url = "http://l.sxkiss.top:9090"
+image-public-base-url = "http://example.internal:9090"
 image-public-route-prefix = "/media/files"
 system-prompt = ""
 session-reset-commands = ["/new", "/reset"]

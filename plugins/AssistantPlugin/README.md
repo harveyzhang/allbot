@@ -1,6 +1,6 @@
 # AssistantPlugin
 
-基于 `http://l.sxkiss.top:9876`（FastAPI AI Agent Standalone）的 AI 对话插件。
+基于 `http://example.internal:9876`（FastAPI AI Agent Standalone）的 AI 对话插件。
 
 ## 功能
 
@@ -14,7 +14,7 @@
 
 | 配置项 | 说明 |
 |--------|------|
-| `api-base-url` | 后端地址 `http://l.sxkiss.top:9876` |
+| `api-base-url` | 后端地址 `http://example.internal:9876` |
 | `api-key` | 后端 API key |
 | `base-url` | 后端转发上游 base_url |
 | `model` | 模型名（默认 `auto`） |

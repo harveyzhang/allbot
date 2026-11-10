@@ -173,7 +173,7 @@ class MQMessageParser:
 # 使用示例
 if __name__ == "__main__":
     # 示例数据
-    sample_data = '''{"Code":0,"Success":true,"Message":"成功","Data":{"AddMsgs":[{"MsgId":1557198438,"FromUserName":{"string":"52806025813@chatroom"},"ToUserName":{"string":"wxid_xdoez8q10f6229"},"MsgType":1,"Content":{"string":"sxkiss_com:\\nw"},"Status":3,"CreateTime":1764153850,"MsgSource":"<msgsource>\\n\\t<membercount>5</membercount>\\n</msgsource>","PushContent":"与你相约 : w","NewMsgId":4223379567962673026,"MsgSeq":337752}]}}'''
+    sample_data = '''{"Code":0,"Success":true,"Message":"成功","Data":{"AddMsgs":[{"MsgId":1557198438,"FromUserName":{"string":"0@chatroom"},"ToUserName":{"string":"wxid_REDACTED"},"MsgType":1,"Content":{"string":"REDACTED_USER:\\nw"},"Status":3,"CreateTime":1764153850,"MsgSource":"<msgsource>\\n\\t<membercount>5</membercount>\\n</msgsource>","PushContent":"与你相约 : w","NewMsgId":4223379567962673026,"MsgSeq":337752}]}}'''
     
     parser = MQMessageParser()
     result = parser.parse_message(sample_data)

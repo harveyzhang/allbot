@@ -88,7 +88,7 @@ def _seed_one(fake, content="ALLBot Running!"):
     fake.q["allbot_reply:wechat_869"] = deque([
         json.dumps({
             "platform": "wechat_869",
-            "wxid": "sxkiss_com",
+            "wxid": "REDACTED_USER",
             "msg_type": "text",
             "content": {"text": content},
             "account_wxid": "main",
@@ -106,7 +106,7 @@ def _drive(fake, client, rounds=6, clear_router=False):
         if clear_router:
             client.reply_router = None
             client._force_reply_router = False
-        asyncio.run(client.send_text_message("sxkiss_com", payload["content"]["text"]))
+        asyncio.run(client.send_text_message("REDACTED_USER", payload["content"]["text"]))
         # dispatcher 把主队列消息搬回平台队列（闭环的一环）
         if fake.llen("allbot_reply"):
             msg = fake.q["allbot_reply"].popleft()
