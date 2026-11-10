@@ -72,7 +72,7 @@ async def _execute_with_retry(operation_name, operation, *args, **kwargs):
 ### config.toml
 ```toml
 [Hermes]
-api-base-url = "http://l.sxkiss.top:8642"
+api-base-url = "http://example.internal:8642"
 api-key = "e8745b717a6a883fa15e8392b0a7093219050da61c2a94faf2c35d8ddf822e44"
 
 # 超时配置
@@ -123,13 +123,13 @@ health-check-interval-seconds = 30.0 # 健康检查间隔
 
 ```bash
 # 健康检查
-curl http://l.sxkiss.top:8642/health
+curl http://example.internal:8642/health
 
 # 模型列表
-curl -H "Authorization: Bearer *** http://l.sxkiss.top:8642/v1/models
+curl -H "Authorization: Bearer *** http://example.internal:8642/v1/models
 
 # 聊天测试
-curl -X POST http://l.sxkiss.top:8642/v1/chat/completions \
+curl -X POST http://example.internal:8642/v1/chat/completions \
   -H "Authorization: Bearer *** \
   -H "Content-Type: application/json" \
   -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}'

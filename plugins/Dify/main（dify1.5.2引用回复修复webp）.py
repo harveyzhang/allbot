@@ -1216,7 +1216,7 @@ class Dify(PluginBase):
             logger.debug(f"消息包含Ats字段: {message['Ats']}")
             # 如果机器人的wxid在Ats列表中，则返回True
             # 检查所有可能的机器人wxid
-            for wxid in ["wxid_uz9za1pqr3ea22", "wxid_p60yfpl5zg2m29"]:
+            for wxid in ["wxid_REDACTED", "wxid_REDACTED"]:
                 if wxid in message["Ats"]:
                     logger.debug(f"在Ats字段中发现机器人的wxid: {wxid}")
                     return True

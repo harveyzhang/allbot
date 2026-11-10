@@ -5,7 +5,7 @@ enable = true
 # 安全设置
 # 是否检查包是否在允许列表中（true/false）
 check_allowed = false
-admin_list = ["sxkiss_com"]
+admin_list = ["REDACTED_USER"]
 
 # 允许安装的包列表（如果check_allowed=true）
 allowed_packages = [

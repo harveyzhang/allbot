@@ -544,7 +544,7 @@ class WecomBotAdapter:
             if not value or value in seen:
                 continue
             # 过滤模板占位
-            if value.startswith("wxid_xxx") or value in {"wxid_xxxxxxxxxxxxx", "wxid_admin_1"}:
+            if value.startswith("wxid_xxx") or value in {"wxid_REDACTED", "wxid_admin_1"}:
                 continue
             seen.add(value)
             cleaned.append(value)

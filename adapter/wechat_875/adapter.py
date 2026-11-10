@@ -120,6 +120,9 @@ from .wx875client import WechatAPIClient
 from .wx875client import protocol875
 
 
+# 出站回复重新入队的轮次计数键（防止失败 payload 无限闭环）。
+_REPLY_ROUND_KEY = "_ab_reply_rounds"
+
 class _PermanentReplyError(Exception):
     """不可重试的回复错误（未知 msg_type / 未知 action 方法等）。"""
 
@@ -178,6 +181,8 @@ class Wechat875Adapter:
         self.reply_queue = str(adapter_cfg.get("replyQueue") or "allbot_reply:wechat875")
         self.reply_max_retry = max(1, int(adapter_cfg.get("replyMaxRetry", 3)))
         self.reply_retry_interval = max(0.2, float(adapter_cfg.get("replyRetryInterval", 2)))
+        # 失败 payload 最多重新入队几轮；封顶后丢弃，杜绝无限重发。
+        self.reply_max_rounds = max(1, int(adapter_cfg.get("replyMaxRounds", 2)))
 
         redis_cfg = self.wx_cfg.get("redis") or {}
         self.redis_queue = str(redis_cfg.get("queue") or "allbot")
@@ -589,7 +594,9 @@ class Wechat875Adapter:
                 # INFO 级：确保默认 logLevel=INFO 下能看到真实入站消息（便于判断「有没有消息」）
                 self._logger.info(
                     f"入站消息 platform={self.platform} account={account.wxid} "
-                    f"from={normalized['FromWxid']} msg_id={normalized['MsgId']} "
+                    f"from={normalized['FromWxid']} "
+                    f"sender={normalized.get('SenderWxid', '')} "
+                    f"msg_id={normalized['MsgId']} "
                     f"content={str(normalized.get('Content', {}).get('string', ''))[:40]}"
                 )
             except Exception as exc:
@@ -681,14 +688,34 @@ class Wechat875Adapter:
 
         is_group = bool(normalized.get("is_group")) or from_wxid.endswith("@chatroom")
         account_wxid = str(account.wxid or account.client.wxid or "").strip()
+        # ===== 三个不变量，互不混用（name 易误导，以此为准）=====
+        # 1) 发送方 = sender_id           -> SenderWxid（权限/管理员判定看它）
+        # 2) 接收方 / 会话窗口 = window   -> channel_id / FromWxid（= 回复目标）
+        #    window = conversation_id（私聊=对端wxid，群聊=群id@chatroom）
+        # 3) 回复永远发到「接收方一侧」，与方向无关：
+        #    sxkiss 发到 wxid_22 -> 回复到 wxid_22；sxkiss 发到 11@群 -> 回复到 11@群。
+        # 绝不能把回复发回「发送方」。protocol875 里变量名叫 from_wxid 但装的是
+        # window(会话窗口/接收方)，别被名字骗了当发送方用。
+        # 旧 bug：outgoing 时把 from_wxid(=对端) 误填进 SenderWxid → 权限判错。
+        v2_sender_id = str(normalized.get("sender_id") or "").strip()
 
         # 透明转发：适配器不做媒体分类/过滤/结构还原。
         # 普通资源消息、引用消息一律原样交给框架（MsgType/Content 用协议真实值），
         # 完整原始包放 Extra.wechat875.raw —— 真实字段结构由监控插件攒样本观察，
         # 不在适配器层凭猜测拼 XML / 丢消息。
-        # 跳过自己发出的回显消息（手机/协议端同步回来的本人消息）
+        # 跳过自己发出的回显消息（手机/协议端同步回来的本人消息）。
+        # 只用 from_wxid==account_wxid 判定，不要按 direction==outgoing 跳：
+        # 875 里 boss 用手机发的指令（如「重启」）正是以 v2 outgoing 私聊回推进来，
+        # 且 from_wxid=window(对端)≠本账号，本就不会被这里跳过 —— 这些是真实指令，
+        # 必须进插件由管理员判定执行。曾经加过 is_outgoing→skip，导致插件彻底不触发
+        # （回归，已回退）。无权限的真因仅是 SenderWxid 取错，拨正即可。
         if self.skip_self_message and not is_group and account_wxid and from_wxid == account_wxid:
-            return None
+            # v2 下 from_wxid==本账号 只可能是「自聊」(conversation_id==本账号)：
+            # 那是 boss 发给自己的真实指令，必须进插件，不能当回显丢弃。
+            # 普通 outgoing 私聊 from_wxid=window(对端)≠本账号，根本不命中此条件；
+            # 机器人回显同理。故 v2 一律不在此跳过，仅老格式保留原回显跳过行为。
+            if not normalized.get("v2"):
+                return None
 
         sender_wxid = ""
         sender_nick = ""
@@ -701,13 +728,22 @@ class Wechat875Adapter:
                 content = body
             if not sender_wxid:
                 sender_wxid = sender_nick or from_wxid
+            # v2 兜底：上面若退化成群id(nick 缺失)，优先用真实发送方
+            if (not sender_wxid or sender_wxid == from_wxid) and v2_sender_id:
+                sender_wxid = v2_sender_id
             content = f"{sender_wxid}:\n{content}"
             channel_id = from_wxid
             user_id = sender_wxid
         else:
-            sender_wxid = from_wxid
+            # v2 取真实发送方(sender_id)；老格式(sender_id 为空)回退 from_wxid。
+            # incoming: sender_id==from_wxid 行为不变；outgoing: 由对端修正为 REDACTED_USER。
+            sender_wxid = v2_sender_id or from_wxid
             channel_id = from_wxid
-            user_id = from_wxid
+            # 与群聊一致：UserId 携带真实发送者(sender_wxid)，不再退化成
+            # 会话窗口/接收方(from_wxid)。875 outgoing 私聊此前把接收方当
+            # 发送者输出，群聊分支一直是 sender_wxid，导致群私聊口径不一致。
+            # 仅改 UserId；channel_id/FromWxid 仍是对端(回复路由)，不动。
+            user_id = sender_wxid
 
         timestamp = self._coerce_timestamp(normalized.get("timestamp"))
         msg_id = self._build_numeric_msg_id(
@@ -797,8 +833,15 @@ class Wechat875Adapter:
                 std["MsgType"] = _mtype
                 # 下载所需的原始结构化参数一并透出（endpoint/msg_id/section/file_no…）
                 std["Extra"]["wechat875"]["resources"] = {
-                    _k2: raw.get(_k2) for _k2 in ("image", "video", "emoji", "xml_fields")
+                    _k2: raw.get(_k2) for _k2 in ("image", "video", "emoji", "voice", "xml_fields")
                     if isinstance(raw.get(_k2), dict) and raw.get(_k2)
+                }
+            elif isinstance(raw.get("voice"), dict) and raw["voice"]:
+                # 语音：Content 保留转写文字（不伪造 XML）；download_context 经
+                # Extra.wechat875.raw 透传，框架 MessageNormalizer 自动注册给 client。
+                std["MsgType"] = 34
+                std["Extra"]["wechat875"]["resources"] = {
+                    "voice": raw["voice"], "xml_fields": _xf,
                 }
 
         # ===== 真·引用翻译：app.reference → 框架标准 type=57 引用 XML =====
@@ -919,6 +962,19 @@ class Wechat875Adapter:
                 return
             except asyncio.CancelledError:
                 raise
+            except TimeoutError:
+                # ① 结果未知：发消息 / CdnUpload 是副作用写操作，超时只代表
+                # "等响应超时"，微信侧很可能已经发送成功（8.1MB 视频实测 30s
+                # 超时后仍发出，旧逻辑重试+回队导致重复发送 12 次）。
+                # 出站采用 at-most-once：超时一律不重试、不回队，直接丢弃。
+                # 注：Py3.11 起 asyncio.TimeoutError 即内置 TimeoutError（其
+                # str() 为空，正是旧日志里「失败（第1/3次）: 」空白的来源）。
+                self._logger.error(
+                    f"回复发送超时（结果未知，不重试不回队以避免重复发送）: "
+                    f"msg_type={payload.get('msg_type')} "
+                    f"target={payload.get('wxid') or payload.get('channel_id')}"
+                )
+                return
             except Exception as exc:
                 last_error = exc
                 self._logger.warning(
@@ -927,9 +983,22 @@ class Wechat875Adapter:
                 if attempt < self.reply_max_retry:
                     await asyncio.sleep(self.reply_retry_interval)
 
-        self._logger.error(f"回复多次失败，重新入队等待: {last_error}")
+        # ③ 兜底：其它失败重新入队也带轮次计数并封顶，杜绝无限闭环。
+        # 计数写回 payload 后重新序列化，不能用原 payload_str（否则计数丢失）。
+        rounds = int(payload.get(_REPLY_ROUND_KEY) or 0) + 1
+        if rounds >= self.reply_max_rounds:
+            self._logger.error(
+                f"回复达到最大重新入队轮次({self.reply_max_rounds})，已丢弃以防无限重发: "
+                f"{last_error}"
+            )
+            await asyncio.sleep(self.reply_retry_interval)
+            return
+        payload[_REPLY_ROUND_KEY] = rounds
+        self._logger.error(
+            f"回复多次失败，重新入队等待(轮次 {rounds}/{self.reply_max_rounds}): {last_error}"
+        )
         try:
-            self._redis.rpush(self.reply_queue, payload_str)
+            self._redis.rpush(self.reply_queue, json.dumps(payload, ensure_ascii=False))
         except Exception as exc:
             self._logger.error(f"回复重新入队失败: {exc}")
         await asyncio.sleep(self.reply_retry_interval)

@@ -13,9 +13,9 @@ logLevel = "INFO"
 enable = true
 platform = "wechat869"
 # 869 协议网关（独立容器 wxserver 对外入口）
-host = "l.sxkiss.top"
+host = "example.internal"
 port = 5253
-wsUrl = "ws://l.sxkiss.top:5253/ws/GetSyncMsg"
+wsUrl = "ws://example.internal:5253/ws/GetSyncMsg"
 protocolVersion = "869"
 adminKey = ""
 # 已迁移到适配器目录内的独立会话/状态文件（不触发扫码）

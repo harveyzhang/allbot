@@ -58,7 +58,7 @@ robot-names = [
 ]
 # 机器人wxid列表，用于检测at_list中的@机器人
 robot-wxids = [
-    "wxid_xxxxxxxxxxxxx"
+    "wxid_REDACTED"
 ]
 # GitHub加速服务设置
 # 可选值: "", "https://github.akams.cn/", "https://ghfast.top/", "https://gh-proxy.com/", "https://mirror.ghproxy.com/"
@@ -104,7 +104,7 @@ ignore-mode = "None"            # 消息处理模式：
 whitelist = [# 白名单列表
     "wxid_example_1",  # 您的个人微信ID
     "wxid_example_2",  # 您的另一个微信ID
-    "1234567890@chatroom"  # 您的群聊ID
+    "0@chatroom"  # 您的群聊ID
 ]
 
 blacklist = [# 黑名单列表

@@ -122,7 +122,7 @@ enable = true
 
 # 管理员列表，只有这些用户可以使用此插件
 # 这里填写管理员的微信ID
-admin_list = ["wxid_lnbsshdobq7y22", "xianan96928"]
+admin_list = ["wxid_REDACTED", "xianan96928"]
 
 # 安全设置
 # 是否检查包是否在允许列表中（true/false）
