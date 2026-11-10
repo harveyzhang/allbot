@@ -2448,7 +2448,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "ToWxids 多个微信ID用,隔开 ChatRoomName 群ID；请求示例：{\u0026quot;ChatRoomName\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_member_1,wxid_member_2\u0026quot;}",
+                        "description": "ToWxids 多个微信ID用,隔开 ChatRoomName 群ID；请求示例：{\u0026quot;ChatRoomName\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_member_1,wxid_member_2\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.AddChatRoomParamDoc"
@@ -2553,7 +2553,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "ToWxids 多个微信ID用,隔开 ChatRoomName 群ID；请求示例：{\u0026quot;ChatRoomName\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_member_1,wxid_member_2\u0026quot;}",
+                        "description": "ToWxids 多个微信ID用,隔开 ChatRoomName 群ID；请求示例：{\u0026quot;ChatRoomName\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_member_1,wxid_member_2\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.AddChatRoomParamDoc"
@@ -2623,7 +2623,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "UserNameList == 群ID,多个查询请用,隔开；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "UserNameList == 群ID,多个查询请用,隔开；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.GetChatRoomParamDoc"
@@ -2658,7 +2658,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.GetChatRoomParamDoc"
@@ -2667,7 +2667,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "获取完整群信息成功；无公告时 Data.Announcement 为空字符串且 Data.HasAnnouncement=false；响应示例：{\"Code\":0,\"Data\":{\"Announcement\":\"\",\"AvatarUrl\":\"https://example.invalid/group.jpg\",\"ChatRoomOwner\":\"wxid_owner\",\"ChatroomUserName\":\"123456789@chatroom\",\"DisplayName\":\"示例群聊\",\"GroupInfoAvailable\":true,\"HasAnnouncement\":false,\"MemberCount\":3,\"NickName\":\"示例群聊\"},\"Message\":\"成功\",\"Success\":true,\"request_id\":\"REQUEST_ID\"}",
+                        "description": "获取完整群信息成功；无公告时 Data.Announcement 为空字符串且 Data.HasAnnouncement=false；响应示例：{\"Code\":0,\"Data\":{\"Announcement\":\"\",\"AvatarUrl\":\"https://example.invalid/group.jpg\",\"ChatRoomOwner\":\"wxid_owner\",\"ChatroomUserName\":\"0@chatroom\",\"DisplayName\":\"示例群聊\",\"GroupInfoAvailable\":true,\"HasAnnouncement\":false,\"MemberCount\":3,\"NickName\":\"示例群聊\"},\"Message\":\"成功\",\"Success\":true,\"request_id\":\"REQUEST_ID\"}",
                         "schema": {
                             "$ref": "#/definitions/models.ResponseResultDoc"
                         }
@@ -2693,7 +2693,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.GetChatRoomParamDoc"
@@ -2728,7 +2728,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.GetChatRoomParamDoc"
@@ -2770,7 +2770,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "获取可识别群列表（兼容路由）成功；响应示例：{\"Code\":0,\"Data\":{\"count\":1,\"groups\":[{\"group_id\":\"12345678901@chatroom\",\"member_count\":3,\"name\":\"示例群聊\"}]},\"Message\":\"成功\",\"Success\":true,\"request_id\":\"REQUEST_ID\"}",
+                        "description": "获取可识别群列表（兼容路由）成功；响应示例：{\"Code\":0,\"Data\":{\"count\":1,\"groups\":[{\"group_id\":\"0@chatroom\",\"member_count\":3,\"name\":\"示例群聊\"}]},\"Message\":\"成功\",\"Success\":true,\"request_id\":\"REQUEST_ID\"}",
                         "schema": {
                             "$ref": "#/definitions/models.ResponseResultDoc"
                         }
@@ -2796,7 +2796,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "ToWxids 多个微信ID用,隔开 ChatRoomName 群ID；请求示例：{\u0026quot;ChatRoomName\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_member_1,wxid_member_2\u0026quot;}",
+                        "description": "ToWxids 多个微信ID用,隔开 ChatRoomName 群ID；请求示例：{\u0026quot;ChatRoomName\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_member_1,wxid_member_2\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.AddChatRoomParamDoc"
@@ -2839,7 +2839,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "获取可识别群列表（群ID、群名、备注、头像、群主、成员数）成功；响应示例：{\"Code\":0,\"Data\":{\"count\":1,\"groups\":[{\"group_id\":\"12345678901@chatroom\",\"member_count\":3,\"name\":\"示例群聊\"}]},\"Message\":\"成功\",\"Success\":true,\"request_id\":\"REQUEST_ID\"}",
+                        "description": "获取可识别群列表（群ID、群名、备注、头像、群主、成员数）成功；响应示例：{\"Code\":0,\"Data\":{\"count\":1,\"groups\":[{\"group_id\":\"0@chatroom\",\"member_count\":3,\"name\":\"示例群聊\"}]},\"Message\":\"成功\",\"Success\":true,\"request_id\":\"REQUEST_ID\"}",
                         "schema": {
                             "$ref": "#/definitions/models.ResponseResultDoc"
                         }
@@ -2865,7 +2865,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID 为群 ID，Val 为服务端操作值；按实际场景填写（示例使用 1）；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;,\u0026quot;Val\u0026quot;:1}",
+                        "description": "QID 为群 ID，Val 为服务端操作值；按实际场景填写（示例使用 1）；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;Val\u0026quot;:1}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.MoveContractListParamDoc"
@@ -2900,7 +2900,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "ToWxids == 多个wxid用,隔开(仅限于添加/删除管理员) Val == 1添加 2删除 3转让；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_group_member\u0026quot;,\u0026quot;Val\u0026quot;:1}",
+                        "description": "ToWxids == 多个wxid用,隔开(仅限于添加/删除管理员) Val == 1添加 2删除 3转让；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;ToWxids\u0026quot;:\u0026quot;wxid_group_member\u0026quot;,\u0026quot;Val\u0026quot;:1}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.OperateChatRoomAdminParamDoc"
@@ -2935,7 +2935,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID == 群ID；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.QuitGroupParamDoc"
@@ -3041,7 +3041,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID/ToUserName/Scene；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;,\u0026quot;Scene\u0026quot;:2,\u0026quot;ToUserName\u0026quot;:\u0026quot;wxid_group_member\u0026quot;}",
+                        "description": "QID/ToUserName/Scene；请求示例：{\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;Scene\u0026quot;:2,\u0026quot;ToUserName\u0026quot;:\u0026quot;wxid_group_member\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.SendPatParamDoc"
@@ -3077,7 +3077,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID/NewOwnerUserName；请求示例：{\u0026quot;NewOwnerUserName\u0026quot;:\u0026quot;wxid_group_member\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID/NewOwnerUserName；请求示例：{\u0026quot;NewOwnerUserName\u0026quot;:\u0026quot;wxid_group_member\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.TransferGroupOwnerParamDoc"
@@ -3112,7 +3112,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "Content == 公告内容；请求示例：{\u0026quot;Content\u0026quot;:\u0026quot;项目交流群\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "Content == 公告内容；请求示例：{\u0026quot;Content\u0026quot;:\u0026quot;项目交流群\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.OperateChatRoomInfoParamDoc"
@@ -3147,7 +3147,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "Content == 名称；请求示例：{\u0026quot;Content\u0026quot;:\u0026quot;项目交流群\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "Content == 名称；请求示例：{\u0026quot;Content\u0026quot;:\u0026quot;项目交流群\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.OperateChatRoomInfoParamDoc"
@@ -3182,7 +3182,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID == 群ID；请求示例：{\u0026quot;Content\u0026quot;:\u0026quot;项目交流群\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID == 群ID；请求示例：{\u0026quot;Content\u0026quot;:\u0026quot;项目交流群\u0026quot;,\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.OperateChatRoomInfoParamDoc"
@@ -3218,7 +3218,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "QID/Enable；请求示例：{\u0026quot;Enable\u0026quot;:true,\u0026quot;QID\u0026quot;:\u0026quot;123456789@chatroom\u0026quot;}",
+                        "description": "QID/Enable；请求示例：{\u0026quot;Enable\u0026quot;:true,\u0026quot;QID\u0026quot;:\u0026quot;0@chatroom\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Group.SetChatroomAccessVerifyParamDoc"
@@ -8358,7 +8358,7 @@
                     {
                         "in": "body",
                         "name": "body",
-                        "description": "直接提交 voice 或 voice.download_context；请求示例：{\u0026quot;chat_room_name\u0026quot;:\u0026quot;12345678901@chatroom\u0026quot;,\u0026quot;client_msg_id\u0026quot;:\u0026quot;ID_10001\u0026quot;,\u0026quot;file_name\u0026quot;:\u0026quot;voice.silk\u0026quot;,\u0026quot;format\u0026quot;:1,\u0026quot;from_user_name\u0026quot;:\u0026quot;wxid_example\u0026quot;,\u0026quot;length\u0026quot;:20,\u0026quot;master_buf_id\u0026quot;:\u0026quot;ID_10001\u0026quot;,\u0026quot;msg_id\u0026quot;:10001,\u0026quot;new_msg_id\u0026quot;:\u0026quot;ID_10001\u0026quot;,\u0026quot;to_user_name\u0026quot;:\u0026quot;wxid_example\u0026quot;}",
+                        "description": "直接提交 voice 或 voice.download_context；请求示例：{\u0026quot;chat_room_name\u0026quot;:\u0026quot;0@chatroom\u0026quot;,\u0026quot;client_msg_id\u0026quot;:\u0026quot;ID_10001\u0026quot;,\u0026quot;file_name\u0026quot;:\u0026quot;voice.silk\u0026quot;,\u0026quot;format\u0026quot;:1,\u0026quot;from_user_name\u0026quot;:\u0026quot;wxid_example\u0026quot;,\u0026quot;length\u0026quot;:20,\u0026quot;master_buf_id\u0026quot;:\u0026quot;ID_10001\u0026quot;,\u0026quot;msg_id\u0026quot;:10001,\u0026quot;new_msg_id\u0026quot;:\u0026quot;ID_10001\u0026quot;,\u0026quot;to_user_name\u0026quot;:\u0026quot;wxid_example\u0026quot;}",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/Tools.BinaryVoiceDownloadParamDoc"
@@ -13195,7 +13195,7 @@
                 "ChatRoomName": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 },
                 "ToWxids": {
                     "description": "成员 wxid，多个用逗号分隔",
@@ -13262,7 +13262,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 }
             }
         },
@@ -13273,7 +13273,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 },
                 "Val": {
                     "description": "操作值",
@@ -13290,7 +13290,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 },
                 "ToWxids": {
                     "description": "目标成员 wxid，多个用逗号分隔",
@@ -13317,7 +13317,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 }
             }
         },
@@ -13328,7 +13328,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 }
             }
         },
@@ -13350,7 +13350,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 },
                 "Scene": {
                     "description": "场景，默认 2",
@@ -13377,7 +13377,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 }
             }
         },
@@ -13393,7 +13393,7 @@
                 "QID": {
                     "description": "群 ID",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 }
             }
         },
@@ -16722,7 +16722,7 @@
                 "SendUserName": {
                     "description": "兼容模式：群聊会话ID；使用contextId时由服务端解析",
                     "type": "string",
-                    "example": "123456789@chatroom"
+                    "example": "0@chatroom"
                 },
                 "Xml": {
                     "description": "兼容模式：红包消息原始内容；使用contextId时无需提交",
