@@ -6,12 +6,19 @@ import tomlkit
 
 app = Path("/app")
 # Only the web and WeChat 875 adapters are used in this distribution.
-for name in ("wechat_869", "wechat_875"):
+for name in ("wechat_869", "wechat_875", "wechat_875webhook"):
     path = app / "adapter" / name / "config.toml"
     config = tomlkit.parse(path.read_text())
     config["adapter"]["enabled"] = name == "wechat_875"
     if name == "wechat_875":
         config["wechat875"].pop("accounts", None)
+    elif name == "wechat_875webhook":
+        # A new transport requires explicit deployment configuration.
+        for key, section in config.items():
+            if key != "adapter" and hasattr(section, "get"):
+                if "enable" in section:
+                    section["enable"] = False
+                section.pop("accounts", None)
     path.write_text(tomlkit.dumps(config))
 
 (app / "plugins/AssistantPlugin/config.toml").write_text("[Assistant]\nenable = false\n")

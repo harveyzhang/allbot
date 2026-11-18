@@ -9,15 +9,7 @@ RUN cd /opt/wheelhouse && sha256sum -c /opt/wheels.sha256 >/dev/null \
 
 FROM docker.io/sxkiss/allbot@sha256:ddf39b3c28ce0a793d6f782f232f5ce2a36159c945af9f377e46c09f2ebbef64
 COPY --from=wheels /opt/installed/ /usr/local/
-COPY release-docs/ /app/
-COPY admin/routes/adapter_routes.py /app/admin/routes/adapter_routes.py
-COPY admin/routes/INDEX.md /app/admin/routes/INDEX.md
-COPY adapter/wechat_875/adapter.py /app/adapter/wechat_875/adapter.py
-COPY adapter/wechat_875/wx875client/core.py /app/adapter/wechat_875/wx875client/core.py
-COPY adapter/wechat_875/wx875client/protocol875.py /app/adapter/wechat_875/wx875client/protocol875.py
-COPY tests/test_875_access_and_media.py /app/tests/test_875_access_and_media.py
-COPY tests/test_quoted_media_upload.py /app/tests/test_quoted_media_upload.py
-COPY plugins/AssistantPlugin/INDEX.md /app/plugins/AssistantPlugin/INDEX.md
+COPY release-source/ /app/
 COPY private/assistant.py /app/plugins/AssistantPlugin/main.py
 COPY deploy/framework-runtime/image_defaults.py /opt/framework-image/defaults.py
 COPY deploy/framework-runtime/start.sh /opt/framework-image/start.sh

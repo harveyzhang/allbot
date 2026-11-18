@@ -13,3 +13,5 @@
 - **根因回归**：facade 上装发送 wrapper 后，`delegate.send_text_message` 必须仍是原生方法——防止 `WechatAPI/facade.py` 的 `__setattr__` 把 `RevokeBotMessage` 的 wrapper 泄漏到终端客户端（5e212db 修复）。
 
 依赖说明：宿主机缺 `redis` / `pysilk` 时测试内注入最小 stub；`-o addopts=""` 用于绕开 pyproject 中宿主机未安装的 `--cov`。
+
+- test_875_quote_cache.py: current-title isolation and expiring raw-message cache regression coverage.
